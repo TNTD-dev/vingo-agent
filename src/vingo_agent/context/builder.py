@@ -88,7 +88,8 @@ async def build_context(
 ):
     """Schema tool do agent đăng ký; trả message theo đúng thứ tự mục 6."""
     return [
-        ModelRequest(parts=[SystemPromptPart(system_prompt)]),
+        # Rỗng khi agent đã nhận prompt qua `instructions`: tránh gửi system prompt hai lần.
+        *([ModelRequest(parts=[SystemPromptPart(system_prompt)])] if system_prompt else []),
         *await build_history(conversation_id),
         ModelRequest(parts=[SystemPromptPart(dynamic_context(now_vn, pending_action, list(unseen_results)))]),
         ModelRequest(parts=[UserPromptPart(new_message)]),

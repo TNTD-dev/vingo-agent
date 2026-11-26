@@ -113,6 +113,8 @@ def turn_env(monkeypatch):
         "transition_turn": True,
         "release_turn": None,
         "set_model_version": None,
+        "get_last_input_usage": None,
+        "set_input_usage": None,
         "discard_unstarted_turn": None,
     }
     for name, value in values.items():
@@ -322,3 +324,95 @@ async def test_fallback_doesNotStopOnEmptyTextBeforeFailure():
     agent = Agent(build_model(FunctionModel(stream_function=fail), FunctionModel(stream_function=success)))
     async with agent.run_stream("hi") as result:
         assert await result.get_output() == "OK"
+
+
+@pytest.mark.parametrize("input_tokens,should_compact", [(40, False), (900, True)])
+async def test_turn_compactsByMeasuredTokens_insteadOfReprSize(turn_env, monkeypatch, input_tokens, should_compact):
+    from contextlib import asynccontextmanager
+
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+    from pydantic_ai.models.function import DeltaToolCall
+
+    from vingo_agent.context import compaction
+    from vingo_agent.context.tokens import text_chars
+
+    principal, cid, tid, mocks = turn_env
+    # Ngưỡng 800 token; context thật 1.000 ký tự nhưng repr > 800. Request đầu dùng tỉ lệ mặc định.
+    monkeypatch.setattr(
+        o,
+        "get_settings",
+        lambda: get_settings().model_copy(
+            update={
+                "context_window_tokens": 1000,
+                "output_reserved_tokens": 0,
+            }
+        ),
+    )
+    monkeypatch.setattr(compaction, "get_settings", o.get_settings)
+    monkeypatch.setattr(o, "load_prompt", lambda role: "")
+    monkeypatch.setattr(o, "build_context", AsyncMock(return_value=[ModelRequest(parts=[UserPromptPart("x" * 1000)])]))
+    monkeypatch.setattr(o, "compact_if_needed", compaction.compact_if_needed)
+    rows = [{"turn_id": i, "seq": i, "kind": "USER", "content": {"text": "old"}} for i in range(1, 6)]
+    load = AsyncMock(return_value=(None, rows))
+    monkeypatch.setattr(compaction, "load_context", load)
+    monkeypatch.setattr(compaction, "save_summary", AsyncMock())
+    requests = []
+
+    class MeasuredModel(FunctionModel):
+        @asynccontextmanager
+        async def request_stream(self, messages, *args, **kwargs):
+            requests.append(text_chars(messages))
+            assert len(repr(messages)) > 800
+            async with super().request_stream(messages, *args, **kwargs) as response:
+                response._usage.input_tokens = input_tokens
+                yield response
+
+    async def lookup():
+        return {"ok": True, "data": {}, "meta": {"operation": "fake"}}
+
+    async def respond(messages, info):
+        if any(getattr(part, "part_kind", "") == "tool-return" for m in messages for part in m.parts):
+            yield "OK"
+        else:
+            yield {0: DeltaToolCall(name="lookup", json_args="{}", tool_call_id="call1")}
+
+    # Compact dùng callback LLM không-stream; chỉ nhánh vượt ngưỡng mới gọi callback này.
+    async def summarize(messages, info):
+        from pydantic_ai.messages import ModelResponse, TextPart
+        from pydantic_ai.usage import RequestUsage
+
+        return ModelResponse(parts=[TextPart("mục tiêu")], usage=RequestUsage(input_tokens=20))
+
+    monkeypatch.setattr(o, "build_model", lambda *args: MeasuredModel(function=summarize, stream_function=respond))
+    monkeypatch.setattr(o, "build_agent", lambda role, model, **kwargs: Agent(model, tools=[lookup]))
+    events = [e async for e in await o.run_turn(conversation_id=cid, request=request(), principal=principal)]
+    if should_compact:
+        load.assert_awaited_once()
+        compaction.save_summary.assert_awaited_once()
+        # Summary không giảm context giả lập: giữ nguyên CONTEXT_LIMIT sau khi ước lượng lại.
+        assert events[-1].payload == {"code": "CONTEXT_LIMIT"}
+    else:
+        load.assert_not_awaited()
+        compaction.save_summary.assert_not_awaited()
+        assert events[-1].type == "turn.completed"
+    mocks["set_input_usage"].assert_awaited_once_with(tid, input_tokens, requests[-1])
+
+
+async def test_turn_reusesPreviousRatio_withoutReusingAnchor(turn_env, monkeypatch):
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    principal, cid, tid, mocks = turn_env
+    mocks["get_last_input_usage"].return_value = {"last_input_tokens": 100, "last_input_chars": 1000}
+    monkeypatch.setattr(o, "load_prompt", lambda role: "")
+    monkeypatch.setattr(o, "build_context", AsyncMock(return_value=[ModelRequest(parts=[UserPromptPart("x" * 2000)])]))
+
+    async def respond(messages, info):
+        yield "OK"
+
+    monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond))
+    monkeypatch.setattr(o, "build_agent", lambda role, model, **kwargs: Agent(model))
+    events = [e async for e in await o.run_turn(conversation_id=cid, request=request(), principal=principal)]
+    assert events[-1].type == "turn.completed"
+    # Ratio = (1.000 + 2 ký tự schema "[]") / 100 token = 10,02; ước lượng (2.000 + 2) / 10,02 → 200.
+    # Anchor của turn cũ đã bỏ.
+    assert o.compact_if_needed.call_args.args[1] == 200

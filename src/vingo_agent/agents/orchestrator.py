@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from contextlib import aclosing
+from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,7 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
+    ModelRequest,
     ModelResponse,
     PartDeltaEvent,
     PartStartEvent,
@@ -29,6 +31,7 @@ from vingo_agent.clients.backend import BackendClient
 from vingo_agent.config import get_settings
 from vingo_agent.context.builder import build_context
 from vingo_agent.context.compaction import compact_if_needed
+from vingo_agent.context.tokens import TokenEstimator, text_chars
 from vingo_agent.guardrails.input import InputRejected, check_input, redact
 from vingo_agent.guardrails.limits import usage_limits
 from vingo_agent.guardrails.output import Evidence, check_reply
@@ -142,6 +145,7 @@ async def run_turn(*, conversation_id, request, principal):
         blocks, messages, amounts = {}, [{"kind": "USER", "content": {"text": text}}], set()
         notices = []
         model_version = None
+        last_input_tokens = last_input_chars = None
 
         def event(kind, payload):
             nonlocal seq
@@ -152,6 +156,8 @@ async def run_turn(*, conversation_id, request, principal):
             await repo.append_messages(conversation_id, turn_id, messages)
             if model_version:
                 await repo.set_model_version(turn_id, model_version)
+            if last_input_tokens is not None:
+                await repo.set_input_usage(turn_id, last_input_tokens, last_input_chars)
             await repo.transition_turn(
                 turn_id,
                 "RUNNING",
@@ -178,10 +184,10 @@ async def run_turn(*, conversation_id, request, principal):
 
                 async def context():
                     return await build_context(
-                        conversation_id, system_prompt=prompt, now_vn=now, pending_action=pending, new_message=text
+                        conversation_id, system_prompt="", now_vn=now, pending_action=pending, new_message=text
                     )
 
-                tool_schema_size = len(
+                tool_schema_size = text_chars(
                     json.dumps(
                         [
                             {
@@ -195,9 +201,20 @@ async def run_turn(*, conversation_id, request, principal):
                     )
                 )
 
+                estimator = TokenEstimator(settings.default_chars_per_token)
+                previous_usage = await repo.get_last_input_usage(conversation_id)
+                if previous_usage:
+                    estimator.observe(
+                        previous_usage["last_input_tokens"], previous_usage["last_input_chars"], tool_schema_size
+                    )
+                    estimator.reset_anchor()
+
                 async def estimate():
-                    # Đếm ký tự làm cận trên bảo thủ, gồm prompt, lịch sử và toàn bộ schema tool.
-                    return len(repr(await context())) + tool_schema_size
+                    return estimator.estimate(text_chars(await context()) + len(prompt), tool_schema_size)
+
+                async def estimate_after_compact():
+                    estimator.reset_anchor()
+                    return await estimate()
 
                 async def summarize(instructions, summary, rows):
                     summarizer = Agent(model, instructions=instructions)
@@ -212,7 +229,9 @@ async def run_turn(*, conversation_id, request, principal):
                     )
                     return redact(result.output)
 
-                await compact_if_needed(conversation_id, await estimate(), summarize=summarize, estimate=estimate)
+                await compact_if_needed(
+                    conversation_id, await estimate(), summarize=summarize, estimate=estimate_after_compact
+                )
                 history = await context()
                 _, context_rows = await repo.load_context(conversation_id)
                 for row in context_rows:
@@ -224,7 +243,7 @@ async def run_turn(*, conversation_id, request, principal):
                     if len(valid) != len(selection.ids):
                         yield event("notice", {"level": "WARN", "text": "Lựa chọn không hợp lệ đã được bỏ qua."})
                     if valid:
-                        from pydantic_ai.messages import ModelRequest, UserPromptPart
+                        from pydantic_ai.messages import UserPromptPart
 
                         history.append(
                             ModelRequest(parts=[UserPromptPart(json.dumps({"selection": valid, "type": kind}))])
@@ -235,19 +254,29 @@ async def run_turn(*, conversation_id, request, principal):
                     async with agent.iter(message_history=history, deps=deps, usage=usage, usage_limits=limits) as run:
                         async for node in run:
                             if Agent.is_model_request_node(node):
-                                if len(repr(run.ctx.state.message_history)) + len(
-                                    repr(node.request)
-                                ) + tool_schema_size >= settings.compact_ratio * (
-                                    settings.context_window_tokens - settings.output_reserved_tokens
+                                request_messages = [
+                                    *run.ctx.state.message_history,
+                                    replace(node.request, instructions=prompt),
+                                ]
+                                if estimator.estimate(text_chars(request_messages), tool_schema_size) >= (
+                                    settings.compact_ratio
+                                    * (settings.context_window_tokens - settings.output_reserved_tokens)
                                 ):
                                     current = run.ctx.state.message_history[history_count:]
 
                                     async def estimate_current(current=current, node=node):
-                                        return await estimate() + len(repr(current)) + len(repr(node.request))
+                                        # Callback chỉ chạy sau khi summary đã thay history trong DB.
+                                        estimator.reset_anchor()
+                                        return estimator.estimate(
+                                            text_chars(
+                                                [*await context(), *current, replace(node.request, instructions=prompt)]
+                                            ),
+                                            tool_schema_size,
+                                        )
 
                                     await compact_if_needed(
                                         conversation_id,
-                                        await estimate_current(),
+                                        estimator.estimate(text_chars(request_messages), tool_schema_size),
                                         summarize=summarize,
                                         estimate=estimate_current,
                                     )
@@ -255,6 +284,8 @@ async def run_turn(*, conversation_id, request, principal):
                                     history_count = len(compacted_history)
                                     run.ctx.state.message_history[:] = [*compacted_history, *current]
                                 async with node.stream(run.ctx) as response:
+                                    # node.stream đã thêm request và resolve instructions; history chưa có response.
+                                    request_chars = text_chars(run.ctx.state.message_history)
                                     async for item in response:
                                         delta = None
                                         if isinstance(item, PartStartEvent) and isinstance(item.part, TextPart):
@@ -265,6 +296,9 @@ async def run_turn(*, conversation_id, request, principal):
                                             model_version = response.response.model_name or model_version
                                             final_text += delta
                                             yield event("text.delta", {"text": delta})
+                                input_tokens = response.response.usage.input_tokens
+                                if estimator.observe(input_tokens, request_chars, tool_schema_size):
+                                    last_input_tokens, last_input_chars = input_tokens, request_chars
                             elif Agent.is_call_tools_node(node):
                                 async with node.stream(run.ctx) as tool_stream:
                                     async for item in tool_stream:

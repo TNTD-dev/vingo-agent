@@ -1,4 +1,4 @@
-"""7 bảng schema `agent` (V2.3 mục 6.1). Migration 0001 là nguồn của DDL; file này phải khớp."""
+"""7 bảng schema `agent` (V2.3 mục 6.1). Các revision Alembic là nguồn của DDL; file này phải khớp."""
 
 from sqlalchemy import (
     BigInteger,
@@ -66,6 +66,8 @@ turn = Table(
     Column("final_text_and_blocks", JSONB),
     Column("model_version", String(128)),
     Column("prompt_version", String(64)),
+    Column("last_input_tokens", Integer),
+    Column("last_input_chars", Integer),
     Column("created_at", TS, nullable=False, server_default=NOW),
     Column("finished_at", TS),
     UniqueConstraint("conversation_id", "command_id", name="uq_turn_command"),

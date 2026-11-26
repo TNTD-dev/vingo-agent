@@ -171,3 +171,72 @@ async def test_sendMessage_failsStaleTurn_whenLeaseLostBeforeStream(database_url
             assert (await repo.get_conversation(cid))["active_turn_id"] is None
     finally:
         await engine.dispose()
+
+
+async def test_turn_persistsUsageAndCharsOfLastModelRequest(database_url, monkeypatch):
+    from pydantic_ai.messages import ModelRequest
+
+    from vingo_agent.context.tokens import text_chars
+
+    engine = create_async_engine(database_url)
+
+    @asynccontextmanager
+    async def transaction():
+        async with engine.begin() as conn:
+            yield conn
+
+    monkeypatch.setattr(repo, "transaction", transaction)
+    request_chars = []
+
+    class MeasuredModel(FunctionModel):
+        @asynccontextmanager
+        async def request_stream(self, messages, *args, **kwargs):
+            # Tính từ messages thật đến provider, gồm instructions đã resolve.
+            assert any(isinstance(message, ModelRequest) and message.instructions for message in messages)
+            request_chars.append(text_chars(messages))
+            async with super().request_stream(messages, *args, **kwargs) as response:
+                response._usage.input_tokens = 40 * len(request_chars)
+                yield response
+
+    async def lookup():
+        """Tool giả để buộc hai lần gọi model trong một turn."""
+        return {"ok": True, "data": {"title": "Demo"}, "meta": {"operation": "fake"}}
+
+    async def respond(messages, info):
+        if len(request_chars) == 1:
+            yield {0: DeltaToolCall(name="lookup", json_args="{}", tool_call_id="call1")}
+        else:
+            yield "OK"
+
+    monkeypatch.setattr(factory, "tools_for", lambda *args: {"lookup": lookup})
+    monkeypatch.setattr(orchestrator, "build_model", lambda *args: MeasuredModel(stream_function=respond))
+    headers = {
+        "X-Agent-Service-Key": "test-service-key",
+        "X-Vingo-User-Id": str(uuid4()),
+        "X-Vingo-Role": "BUYER",
+        "Authorization": "Bearer session-secret",
+    }
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app()), base_url="http://agent"
+        ) as client:
+            cid = (await client.post("/internal/v1/conversations", headers=headers)).json()["conversation_id"]
+            sent = await client.post(
+                f"/internal/v1/conversations/{cid}/messages",
+                headers=headers,
+                json={"command_id": str(uuid4()), "text": "xin chào"},
+            )
+            events = [json.loads(line[6:]) for line in sent.text.splitlines() if line.startswith("data: ")]
+            assert events[-1]["type"] == "turn.completed", events
+            tid = events[0]["turn_id"]
+            turn = await repo.get_turn(tid)
+            assert len(request_chars) == 2
+            assert turn["last_input_tokens"] == 80
+            assert turn["last_input_chars"] == request_chars[-1]
+            assert turn["last_input_chars"] > request_chars[0]
+            assert dict(await repo.get_last_input_usage(cid)) == {
+                "last_input_tokens": 80,
+                "last_input_chars": request_chars[-1],
+            }
+    finally:
+        await engine.dispose()

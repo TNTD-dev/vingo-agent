@@ -400,7 +400,7 @@ Thứ tự context (phần đầu ổn định để dùng prompt cache):
 4. Tin nhắn mới
 5. Kết quả tool của turn hiện tại
 
-**Compact:** `B` = context window của model trừ phần dành cho output. Trước mỗi lần gọi model, ước lượng token; nếu ≥ 80% `B` thì tóm tắt các turn cũ (giữ 3 turn gần nhất), lưu summary, ước lượng lại. Vẫn không vừa → `CONTEXT_LIMIT`. Summary chỉ ghi mục tiêu, lựa chọn, câu hỏi còn mở; không dùng làm bằng chứng giá hay trạng thái.
+**Compact:** `B` = context window của model trừ phần dành cho output. Trước mỗi lần gọi model, ước lượng token; nếu ≥ 80% `B` thì tóm tắt các turn cũ (giữ 3 turn gần nhất), lưu summary, ước lượng lại. Vẫn không vừa → `CONTEXT_LIMIT`. Summary chỉ ghi mục tiêu, lựa chọn, câu hỏi còn mở; không dùng làm bằng chứng giá hay trạng thái. Ước lượng neo theo `usage.input_tokens` và số ký tự nội dung của request gần nhất, mặc định `default_chars_per_token = 2.5` ký tự/token khi chưa có số đo; sau compact hoặc sang turn mới chỉ giữ tỉ lệ, bỏ anchor.
 
 Không có long-term memory, RAG, vector DB.
 
@@ -433,6 +433,8 @@ erDiagram
         jsonb final_text_and_blocks
         string model_version
         string prompt_version
+        int last_input_tokens "nullable"
+        int last_input_chars "nullable"
         timestamptz created_at
         timestamptz finished_at
     }

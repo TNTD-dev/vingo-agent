@@ -254,3 +254,34 @@ async def set_model_version(turn_id, model_version):
 async def discard_unstarted_turn(turn_id):
     async with transaction() as conn:
         await conn.execute(delete(m.turn).where(m.turn.c.id == turn_id, m.turn.c.state == "RUNNING"))
+
+
+async def set_input_usage(turn_id, input_tokens, input_chars):
+    async with transaction() as conn:
+        await conn.execute(
+            update(m.turn)
+            .where(m.turn.c.id == turn_id)
+            .values(last_input_tokens=input_tokens, last_input_chars=input_chars)
+        )
+
+
+async def get_last_input_usage(conversation_id):
+    """Chỉ lấy số đo hợp lệ của turn thành công gần nhất trong chính hội thoại."""
+    async with transaction() as conn:
+        return (
+            (
+                await conn.execute(
+                    select(m.turn.c.last_input_tokens, m.turn.c.last_input_chars)
+                    .where(
+                        m.turn.c.conversation_id == conversation_id,
+                        m.turn.c.state.in_(("COMPLETED", "AWAITING_CONFIRMATION")),
+                        m.turn.c.last_input_tokens > 0,
+                        m.turn.c.last_input_chars > 0,
+                    )
+                    .order_by(m.turn.c.finished_at.desc(), m.turn.c.id.desc())
+                    .limit(1)
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
