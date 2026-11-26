@@ -57,7 +57,7 @@ OPERATIONS: dict[str, Operation] = {
     "blockSeats": Operation("POST", "/admin/showtimes/{showtime_id}/seats/block", write=True),
     "unblockSeats": Operation("POST", "/admin/showtimes/{showtime_id}/seats/unblock", write=True),
     "adminResendTicket": Operation("POST", "/admin/tickets/{ticket_id}/resend", write=True),
-    #Admin
+    # Admin
     "createVenue": Operation("POST", "/admin/venues", write=True),
 }
 
