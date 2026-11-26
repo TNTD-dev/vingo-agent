@@ -37,8 +37,20 @@
   assert: []
 
 - id: F07
-  input: "LLM provider lỗi"
-  expect: "`turn.failed`; trang web mua vé vẫn hoạt động"
+  input: "Model chính lỗi 5xx/timeout trước chữ đầu tiên"
+  expect: "Model dự phòng trả lời; log `outcome=FALLBACK`; turn COMPLETED"
+  steps: []
+  assert: []
+
+- id: F11
+  input: "Cả model chính và dự phòng cùng lỗi"
+  expect: "`turn.failed BACKEND_UNAVAILABLE`; trang web mua vé vẫn hoạt động"
+  steps: []
+  assert: []
+
+- id: F12
+  input: "Model chính đứt sau khi đã stream chữ"
+  expect: "`turn.failed`; không chuyển sang model dự phòng giữa câu"
   steps: []
   assert: []
 

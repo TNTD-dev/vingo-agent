@@ -13,7 +13,7 @@ mã lỗi / SSE / block / API, migration 7 bảng, registry tool theo role, ki�
 
 ```bash
 uv sync
-cp .env.example .env          # điền AGENT_SERVICE_KEY, AGENT_TO_BACKEND_KEY, AGENT_MODEL, LLM_API_KEY
+cp .env.example .env          # điền key dịch vụ, AGENT_MODEL, AGENT_FALLBACK_MODEL và key provider
 uv run alembic upgrade head   # cần Postgres 18 (uuidv7) của backend, role vingo_agent
 uv run uvicorn vingo_agent.api.app:app --host 127.0.0.1 --port 8000
 ```
@@ -32,7 +32,7 @@ uv run python scripts/sync_contract.py          # operationId khớp ../vingo-ba
 | Thư mục | Trách nhiệm |
 |---|---|
 | `api/` | Route `/internal/v1`, auth từ backend, sự kiện SSE |
-| `agents/` | Registry tool theo role, dựng PydanticAI Agent, chạy turn |
+| `agents/` | Registry tool theo role, dựng PydanticAI Agent (model chính + dự phòng), chạy turn |
 | `prompts/` | System prompt Buyer/Admin (copy từ thiết kế mục 3) |
 | `tools/` | 32 tool: đọc, đề xuất, quyết định; lọc kết quả; dựng block |
 | `guardrails/` | G2–G10: input, tool, kết quả, câu trả lời, giới hạn |
@@ -42,4 +42,4 @@ uv run python scripts/sync_contract.py          # operationId khớp ../vingo-ba
 | `persistence/` | Bảng schema `agent`, truy vấn |
 | `schemas/` | Mã lỗi, block, request/response API |
 | `observability/` | Log JSON (allowlist field), trace |
-| `evals/` | Seed + 71 case từ thiết kế mục 8 |
+| `evals/` | Seed + 73 case từ thiết kế mục 8 |

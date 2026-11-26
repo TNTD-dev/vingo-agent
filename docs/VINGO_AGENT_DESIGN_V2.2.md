@@ -56,7 +56,14 @@ flowchart TD
 
 **Giới hạn mỗi turn:** 120 giây, 20 lần gọi model, 40 lần gọi tool. Một hội thoại chỉ có một turn chạy; gửi tin khi đang chạy → 409 `TURN_IN_PROGRESS`. Rate limit theo user dùng rate limit sẵn có của backend.
 
-**Model:** cấu hình qua biến môi trường `AGENT_MODEL`. Yêu cầu: tool calling, streaming, tiếng Việt tốt. Không giới hạn token mỗi turn; theo dõi chi phí ở mục 9.
+**Model:** model chính qua `AGENT_MODEL`, model dự phòng qua `AGENT_FALLBACK_MODEL` (DeepSeek V4.1). Cả hai phải có tool calling, streaming, tiếng Việt tốt; prompt và tool dùng chung. Không giới hạn token mỗi turn; theo dõi chi phí ở mục 9.
+
+**Fallback:**
+- Dùng `FallbackModel` của PydanticAI: mỗi lần gọi model, model chính lỗi (timeout, 5xx, 429, lỗi kết nối) thì gọi lại đúng request đó bằng model dự phòng. Lỗi 4xx khác (request sai, context quá dài) không fallback.
+- Chỉ fallback **trước khi có chữ đầu tiên** của lần gọi đó; đã stream chữ rồi mà đứt thì `turn.failed`, không ghép câu trả lời từ hai model.
+- Một turn có thể dùng cả hai model qua các lần gọi khác nhau. `TURN.model_version` ghi model đã trả lời lần cuối; log ghi `outcome=FALLBACK` khi đổi.
+- Cả hai cùng lỗi → `turn.failed` mã `BACKEND_UNAVAILABLE`; chức năng mua vé trên web không bị ảnh hưởng.
+- Dữ liệu gửi sang DeepSeek đi qua cùng lớp che (G3) như model chính; cần xác nhận điều khoản lưu dữ liệu của provider trước khi bật ở production.
 
 ## 3. Prompt và output
 
@@ -574,12 +581,14 @@ Chạy mỗi case model 3 lần. Safety test fail → chặn tool liên quan.
 | F04 | Hai buyer tranh ghế cuối | Tối đa 1 hold thành công |
 | F05 | Agent chết sau khi gọi backend | EXECUTION RUNNING quá hạn được coi UNKNOWN và tra lại khi mở hội thoại |
 | F06 | Phiên hết hạn trước khi confirm | 401; 0 ghi |
-| F07 | LLM provider lỗi | `turn.failed`; trang web mua vé vẫn hoạt động |
+| F07 | Model chính lỗi 5xx/timeout trước chữ đầu tiên | Model dự phòng trả lời; log `outcome=FALLBACK`; turn COMPLETED |
+| F11 | Cả model chính và dự phòng cùng lỗi | `turn.failed BACKEND_UNAVAILABLE`; trang web mua vé vẫn hoạt động |
+| F12 | Model chính đứt sau khi đã stream chữ | `turn.failed`; không chuyển sang model dự phòng giữa câu |
 | F08 | Mất kết nối SSE sau khi tạo đề xuất | `GET /chat/turns/{id}` trả cùng đề xuất |
 | F09 | Backend trả field secret lạ | Bị lọc |
 | F10 | Admin sửa event trên web trong lúc xác nhận publish | Backend quyết định; kết quả hiện đúng mã lỗi |
 
-71 case: 19 Buyer, 11 Admin, 31 an toàn, 10 sự cố. Test không dùng model (deterministic) kiểm cả side effect ở backend, không chỉ tên tool.
+73 case: 19 Buyer, 11 Admin, 31 an toàn, 12 sự cố. Test không dùng model (deterministic) kiểm cả side effect ở backend, không chỉ tên tool.
 
 ## 9. Quan sát
 
@@ -589,7 +598,7 @@ Log JSON: `timestamp, event, request_id, turn_id, action_id?, role, operation, o
 
 | Nhóm | Metric |
 |---|---|
-| Sẵn sàng | Số turn, turn lỗi, lỗi provider/backend |
+| Sẵn sàng | Số turn, turn lỗi, lỗi provider/backend, số lần fallback theo model |
 | Tốc độ | Chữ đầu tiên, thời gian turn, model, HTTP (p50/p95) |
 | Dùng | Số model/tool call, token vào/ra/cache, số lần compact |
 | Chi phí | Chi phí model mỗi turn (p50/p95), theo role |
@@ -604,20 +613,43 @@ Cache: dùng prompt cache của provider (phần đầu context ổn định). K
 
 ## 10. Cấu trúc code
 
+Repo `vingo-agent`: Python 3.12, uv, FastAPI, PydanticAI, SQLAlchemy async + Alembic, pytest, ruff.
+
 ```text
-agent/
-├── api/            # /internal/v1: conversations, messages (SSE), actions, turns
-├── agents/         # cấu hình Buyer / Admin
-├── prompts/
-├── tools/          # schema, handler, projection, block builder
-├── guardrails/     # input, tool, result, output check
-├── context/        # dựng context, compact
-├── actions/        # đề xuất, xác nhận, thực thi, tra lại
-├── clients/        # gọi backend
-├── persistence/    # schema agent
-└── observability/
-evals/              # fixture, case, evaluator
-tests/              # unit, integration, e2e
+vingo-agent/
+├── pyproject.toml · alembic.ini · .env.example · README.md · CLAUDE.md
+├── docs/VINGO_AGENT_DESIGN_V2.2.md
+├── migrations/versions/0001_agent_schema.py   # 7 bảng mục 6.1, DDL viết cứng
+├── scripts/sync_contract.py                   # kiểm operationId khớp vingo-openapi.yaml
+├── src/vingo_agent/
+│   ├── config.py                # biến môi trường (model chính/dự phòng, giới hạn, kill switch)
+│   ├── api/
+│   │   ├── app.py               # FastAPI, /health
+│   │   ├── routes.py            # 6 route mục 7.1
+│   │   ├── auth.py              # G1: service key + danh tính từ backend
+│   │   └── sse.py               # sự kiện SSE mục 3.3
+│   ├── agents/
+│   │   ├── registry.py          # tool theo role, bỏ tool bị tắt
+│   │   ├── factory.py           # dựng Agent + FallbackModel
+│   │   └── orchestrator.py      # chạy một turn
+│   ├── prompts/                 # buyer.md, admin.md (mục 3.1, 3.2)
+│   ├── tools/
+│   │   ├── base.py              # TurnDeps, envelope, ToolError, kiểm Ref
+│   │   ├── buyer_read.py        # 11 tool đọc Buyer
+│   │   ├── admin_read.py        # 10 tool đọc Admin
+│   │   ├── proposals.py         # 10 tool đề xuất
+│   │   ├── decisions.py         # confirm/reject_pending_action
+│   │   ├── projections.py       # G7 lọc kết quả
+│   │   └── blocks.py            # dựng block
+│   ├── guardrails/              # input (G2–G3), tool (G4–G6), result (G7), output (G9), limits (G10)
+│   ├── context/                 # builder, compaction
+│   ├── actions/                 # proposals, confirm, execution, lookup
+│   ├── clients/backend.py       # danh sách operation cố định, token user + agent key
+│   ├── persistence/             # db, models (7 bảng), repositories
+│   ├── schemas/                 # errors, blocks, chat
+│   └── observability/           # logging (allowlist field), tracing
+├── evals/                       # fixtures/seed.md, cases/*.yaml (73 case mục 8), runner.py
+└── tests/                       # unit/, integration/ (Testcontainers Postgres 18)
 ```
 
 ## 11. Việc phía backend và web
