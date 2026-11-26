@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Chuỗi model PydanticAI, ví dụ "openai:<model>". Bắt buộc tool calling + streaming + tiếng Việt.
     # API key đọc theo biến môi trường chuẩn của từng provider (OPENAI_API_KEY, DEEPSEEK_API_KEY...).
     agent_model: str = ""
-    # Model dự phòng (DeepSeek V4.1). Rỗng = không fallback.
+    # Model dự phòng: "deepseek:deepseek-flash" (DeepSeek V4.1 Flash). Rỗng = không fallback.
     agent_fallback_model: str = ""
 
     turn_deadline_s: float = 120

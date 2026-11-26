@@ -56,7 +56,7 @@ flowchart TD
 
 **Giới hạn mỗi turn:** 120 giây, 20 lần gọi model, 40 lần gọi tool. Một hội thoại chỉ có một turn chạy; gửi tin khi đang chạy → 409 `TURN_IN_PROGRESS`. Rate limit theo user dùng rate limit sẵn có của backend.
 
-**Model:** model chính qua `AGENT_MODEL`, model dự phòng qua `AGENT_FALLBACK_MODEL` (DeepSeek V4.1). Cả hai phải có tool calling, streaming, tiếng Việt tốt; prompt và tool dùng chung. Không giới hạn token mỗi turn; theo dõi chi phí ở mục 9.
+**Model:** model chính qua `AGENT_MODEL`, model dự phòng qua `AGENT_FALLBACK_MODEL` = `deepseek:deepseek-flash` (DeepSeek V4.1 Flash). Cả hai phải có tool calling, streaming, tiếng Việt tốt; prompt và tool dùng chung. Không giới hạn token mỗi turn; theo dõi chi phí ở mục 9.
 
 **Fallback:**
 - Dùng `FallbackModel` của PydanticAI: mỗi lần gọi model, model chính lỗi (timeout, 5xx, 429, lỗi kết nối) thì gọi lại đúng request đó bằng model dự phòng. Lỗi 4xx khác (request sai, context quá dài) không fallback.
