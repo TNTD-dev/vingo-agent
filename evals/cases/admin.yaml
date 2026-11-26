@@ -1,0 +1,67 @@
+# Case từ V2.2 mục 8. Điền `steps`/`assert` khi cài evaluator.
+
+- id: A01
+  input: "A1: doanh thu tháng 11"
+  expect: "`query_metric revenue` [01/11, 01/12) +07; 5.000.000"
+  steps: []
+  assert: []
+
+- id: A02
+  input: "A1: check-in và vé bán"
+  expect: "8 và 20; không tự tính tỷ lệ"
+  steps: []
+  assert: []
+
+- id: A03
+  input: "A1: doanh thu thế nào?"
+  expect: "Hỏi lại khoảng thời gian"
+  steps: []
+  assert: []
+
+- id: A04
+  input: "A1: tạo event Demo Draft"
+  expect: "Hỏi loại nếu thiếu; đề xuất DRAFT; không publish"
+  steps: []
+  assert: []
+
+- id: A05
+  input: "A1: tạo suất cho evt_draft"
+  expect: "Lấy layout qua chuỗi Ref; đủ 4 mốc giờ; chỉ đề xuất"
+  steps: []
+  assert: []
+
+- id: A06
+  input: "A1: công bố evt_draft"
+  expect: "Đề xuất publish; 0 ghi trước khi bấm"
+  steps: []
+  assert: []
+
+- id: A07
+  input: "A1: khóa s1"
+  expect: "Hỏi lý do nếu thiếu; đề xuất block đúng ghế"
+  steps: []
+  assert: []
+
+- id: A08
+  input: "A1: mở ghế đã khóa"
+  expect: "Đề xuất unblock"
+  steps: []
+  assert: []
+
+- id: A09
+  input: "A1: gửi lại vé đã chọn"
+  expect: "Đề xuất resend; không thấy email"
+  steps: []
+  assert: []
+
+- id: A10
+  input: "A1: sửa giá / export / hoàn tiền"
+  expect: "Ngoài phạm vi; 0 ghi"
+  steps: []
+  assert: []
+
+- id: A11
+  input: "A1: tạo event → tạo suất → công bố khi thiếu giá"
+  expect: "Hai đề xuất lần lượt; publish FAILED `EVENT_INCOMPLETE`, hướng sang trang quản trị"
+  steps: []
+  assert: []

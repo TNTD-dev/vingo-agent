@@ -1,0 +1,115 @@
+# Case từ V2.2 mục 8. Điền `steps`/`assert` khi cài evaluator.
+
+- id: B01
+  input: "B1: tìm Demo Concert ở Hà Nội"
+  expect: "`search_events` có q/city; block EventList có evt_01; 0 ghi"
+  steps: []
+  assert: []
+
+- id: B02
+  input: "B1: sự kiện cuối tuần này"
+  expect: "from/to = T7 28/11 00:00+07 → T2 30/11 00:00+07"
+  steps: []
+  assert: []
+
+- id: B03
+  input: "B1: 2 vé dưới 600k"
+  expect: "Gợi ý GA dựa trên giá tool; không đề xuất"
+  steps: []
+  assert: []
+
+- id: B04
+  input: "B1: giữ 2 vé GA"
+  expect: "`propose_hold_seats` zone_ga qty 2; ConfirmAction total 500.000; 0 ghi"
+  steps: []
+  assert: []
+
+- id: B05
+  input: "B1: \"ok\" khi thẻ B04 đang hiện"
+  expect: "`confirm_pending_action` là tool đầu; đúng 1 hold; `confirmed_via=TEXT`"
+  steps: []
+  assert: []
+
+- id: B06
+  input: "B1 bấm xác nhận B04"
+  expect: "Đúng 1 hold; OrderSummary; tự hiện ConfirmAction thanh toán có form"
+  steps: []
+  assert: []
+
+- id: B07
+  input: "B1: đổi thành 3 vé (B04 PENDING)"
+  expect: "Đề xuất mới qty 3; B04 SUPERSEDED, không xác nhận được"
+  steps: []
+  assert: []
+
+- id: B08
+  input: "B1: chọn s1, s2 khu VIP"
+  expect: "`seat_ids=[s1,s2]`; total 1.000.000"
+  steps: []
+  assert: []
+
+- id: B09
+  input: "B1: giữ ghế không có trong khu"
+  expect: "`INVALID_REFERENCE`; không đề xuất"
+  steps: []
+  assert: []
+
+- id: B10
+  input: "B1: thanh toán ord_b1"
+  expect: "ConfirmAction có form; chưa tạo payment"
+  steps: []
+  assert: []
+
+- id: B11
+  input: "B1 bấm xác nhận B10 kèm form"
+  expect: "1 payment OPEN; PaymentLink; không nói đã thanh toán"
+  steps: []
+  assert: []
+
+- id: B12
+  input: "B1: đơn đã trả tiền chưa (OPEN)"
+  expect: "`get_payment`; trả lời chưa thanh toán"
+  steps: []
+  assert: []
+
+- id: B13
+  input: "B1: hủy ord_b1"
+  expect: "Đề xuất hủy; 0 ghi trước khi bấm"
+  steps: []
+  assert: []
+
+- id: B14
+  input: "B1: gửi lại vé"
+  expect: "Đề xuất resend; 0 ghi trước khi bấm"
+  steps: []
+  assert: []
+
+- id: B15
+  input: "B1: cho xem QR"
+  expect: "TicketList có nút QR; model không thấy qr_token"
+  steps: []
+  assert: []
+
+- id: B16
+  input: "B1: hoàn tiền"
+  expect: "Ngoài phạm vi; 0 ghi"
+  steps: []
+  assert: []
+
+- id: B17
+  input: "Giá GA đổi thành 300.000 giữa đề xuất và xác nhận"
+  expect: "Hold thành công; notice nêu tổng mới 600.000"
+  steps: []
+  assert: []
+
+- id: B18
+  input: "B1: \"thôi bỏ đi\" khi thẻ đang hiện"
+  expect: "`reject_pending_action`; REJECTED; 0 ghi"
+  steps: []
+  assert: []
+
+- id: B19
+  input: "B1: \"ok\" với thẻ thanh toán"
+  expect: "`FORM_REQUIRED`; nhắc điền form; 0 ghi"
+  steps: []
+  assert: []

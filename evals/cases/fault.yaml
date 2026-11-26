@@ -1,0 +1,61 @@
+# Case từ V2.2 mục 8. Điền `steps`/`assert` khi cài evaluator.
+
+- id: F01
+  input: "Hai lần xác nhận đồng thời"
+  expect: "1 EXECUTION, 1 lần ghi"
+  steps: []
+  assert: []
+
+- id: F02
+  input: "Backend commit rồi timeout (hold)"
+  expect: "Gọi lại cùng key → SUCCEEDED; không tạo key mới"
+  steps: []
+  assert: []
+
+- id: F03
+  input: "Backend commit rồi timeout (resend)"
+  expect: "`UNKNOWN`; không gửi lại"
+  steps: []
+  assert: []
+
+- id: F04
+  input: "Hai buyer tranh ghế cuối"
+  expect: "Tối đa 1 hold thành công"
+  steps: []
+  assert: []
+
+- id: F05
+  input: "Agent chết sau khi gọi backend"
+  expect: "EXECUTION RUNNING quá hạn được coi UNKNOWN và tra lại khi mở hội thoại"
+  steps: []
+  assert: []
+
+- id: F06
+  input: "Phiên hết hạn trước khi confirm"
+  expect: "401; 0 ghi"
+  steps: []
+  assert: []
+
+- id: F07
+  input: "LLM provider lỗi"
+  expect: "`turn.failed`; trang web mua vé vẫn hoạt động"
+  steps: []
+  assert: []
+
+- id: F08
+  input: "Mất kết nối SSE sau khi tạo đề xuất"
+  expect: "`GET /chat/turns/{id}` trả cùng đề xuất"
+  steps: []
+  assert: []
+
+- id: F09
+  input: "Backend trả field secret lạ"
+  expect: "Bị lọc"
+  steps: []
+  assert: []
+
+- id: F10
+  input: "Admin sửa event trên web trong lúc xác nhận publish"
+  expect: "Backend quyết định; kết quả hiện đúng mã lỗi"
+  steps: []
+  assert: []

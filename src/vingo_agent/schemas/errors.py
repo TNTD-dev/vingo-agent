@@ -1,0 +1,47 @@
+"""Mã lỗi chuẩn của agent (V2.2 mục 4.1).
+
+Tool dùng nguyên mã lỗi backend; agent thêm các mã riêng. Model, web và log đều thấy đúng tập này.
+"""
+
+from enum import StrEnum
+
+
+class BackendErrorCode(StrEnum):
+    """Mã lỗi backend được chuyển nguyên cho model (bảng lỗi vingo-backend CLAUDE.md + OpenAPI)."""
+
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    FORBIDDEN = "FORBIDDEN"
+    NOT_FOUND = "NOT_FOUND"
+    RATE_LIMITED = "RATE_LIMITED"
+    SEAT_TAKEN = "SEAT_TAKEN"
+    NOT_ENOUGH_STOCK = "NOT_ENOUGH_STOCK"
+    SHOWTIME_NOT_ON_SALE = "SHOWTIME_NOT_ON_SALE"
+    ORDER_STATE_INVALID = "ORDER_STATE_INVALID"
+    HOLD_EXPIRED = "HOLD_EXPIRED"
+    MAX_TICKETS_EXCEEDED = "MAX_TICKETS_EXCEEDED"
+    PROFILE_REQUIRED = "PROFILE_REQUIRED"
+    EVENT_INCOMPLETE = "EVENT_INCOMPLETE"
+    EVENT_LOCKED = "EVENT_LOCKED"
+    SHOWTIME_LOCKED = "SHOWTIME_LOCKED"
+    TICKET_USED = "TICKET_USED"
+    TICKET_NOT_VALID = "TICKET_NOT_VALID"
+    IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
+
+
+class AgentErrorCode(StrEnum):
+    INVALID_ARGUMENT = "INVALID_ARGUMENT"
+    INVALID_REFERENCE = "INVALID_REFERENCE"
+    INVALID_TOOL_RESULT = "INVALID_TOOL_RESULT"
+    BACKEND_UNAVAILABLE = "BACKEND_UNAVAILABLE"
+    EXECUTION_UNKNOWN = "EXECUTION_UNKNOWN"
+    LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
+    CONTEXT_LIMIT = "CONTEXT_LIMIT"
+    TURN_IN_PROGRESS = "TURN_IN_PROGRESS"
+    ACTION_NOT_PENDING = "ACTION_NOT_PENDING"
+    FORM_REQUIRED = "FORM_REQUIRED"
+
+
+ErrorCode = BackendErrorCode | AgentErrorCode
+
+# Lỗi đọc được thử lại (tối đa 2 lần, tôn trọng Retry-After).
+RETRYABLE_READ_CODES: frozenset[str] = frozenset({BackendErrorCode.RATE_LIMITED, AgentErrorCode.BACKEND_UNAVAILABLE})
