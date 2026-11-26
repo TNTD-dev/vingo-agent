@@ -1,4 +1,4 @@
-"""Request/response của API nội bộ /internal/v1 (V2.2 mục 7.1). Backend module `chat` proxy 1-1 sang đây."""
+"""Request/response của API nội bộ /internal/v1 (V2.3 mục 7.1). Backend module `chat` proxy 1-1 sang đây."""
 
 from enum import StrEnum
 from typing import Any
@@ -31,7 +31,7 @@ class Selection(Strict):
 
 
 class VisibleAction(Strict):
-    """Thẻ ConfirmAction đang hiện trên web; điều kiện để confirm/reject bằng tin nhắn (V2.2 mục 4.5)."""
+    """Thẻ ConfirmAction đang hiện trên web; điều kiện để confirm/reject bằng tin nhắn (V2.3 mục 4.5)."""
 
     action_id: UUID
     version: int = Field(ge=1)

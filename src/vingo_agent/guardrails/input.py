@@ -1,4 +1,4 @@
-"""G2 kiểm input + G3 che dữ liệu nhạy cảm (V2.2 mục 5.3). Chạy trước khi lưu và trước khi gửi model."""
+"""G2 kiểm input + G3 che dữ liệu nhạy cảm (V2.3 mục 5.3). Chạy trước khi lưu và trước khi gửi model."""
 
 REDACTED = "[đã ẩn]"
 

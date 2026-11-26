@@ -1,4 +1,4 @@
-"""Cấu hình đọc từ biến môi trường (V2.2 mục 2, 5, 9). Secret chỉ đến từ env, không có default thật."""
+"""Cấu hình đọc từ biến môi trường (V2.3 mục 2, 5, 9). Secret chỉ đến từ env, không có default thật."""
 
 from functools import lru_cache
 from typing import Annotated
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     compact_ratio: float = Field(default=0.8, gt=0, lt=1)
     lease_s: float = 150  # lease của turn > deadline để không bị turn khác chiếm giữa chừng
 
-    # Kill switch (V2.2 mục 9): tool trong danh sách không được đăng ký với model.
+    # Kill switch (V2.3 mục 9): tool trong danh sách không được đăng ký với model.
     agent_disabled_tools: Annotated[frozenset[str], NoDecode] = frozenset()
     log_level: str = "INFO"
 

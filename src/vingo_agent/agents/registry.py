@@ -1,4 +1,4 @@
-"""Đăng ký tool theo role (V2.2 mục 4): Buyer 17, Admin 18, bỏ tool trong AGENT_DISABLED_TOOLS."""
+"""Đăng ký tool theo role (V2.3 mục 4): Buyer 17, Admin 18, bỏ tool trong AGENT_DISABLED_TOOLS."""
 
 from collections.abc import Callable
 

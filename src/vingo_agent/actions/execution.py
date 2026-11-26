@@ -1,4 +1,4 @@
-"""Thực thi một đề xuất đã CONFIRMED (V2.2 mục 7, bước 3–7).
+"""Thực thi một đề xuất đã CONFIRMED (V2.3 mục 7, bước 3–7).
 
 2xx → SUCCEEDED · 4xx → FAILED + mã backend · timeout/5xx → lookup.resolve() → SUCCEEDED/FAILED/UNKNOWN.
 Sau đó: ghi MESSAGE SYSTEM_EVENT, ghi Ref mới, phát ActionResult + block kết quả.

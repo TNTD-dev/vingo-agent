@@ -1,4 +1,4 @@
-# Case từ V2.2 mục 8. Điền `steps`/`assert` khi cài evaluator.
+# Case từ V2.3 mục 8. Điền `steps`/`assert` khi cài evaluator.
 
 - id: F01
   input: "Hai lần xác nhận đồng thời"

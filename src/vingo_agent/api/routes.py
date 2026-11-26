@@ -1,4 +1,4 @@
-"""Route /internal/v1 (V2.2 mục 7.1). Khung: mọi route đã kiểm auth + validate body, logic trả 501."""
+"""Route /internal/v1 (V2.3 mục 7.1). Khung: mọi route đã kiểm auth + validate body, logic trả 501."""
 
 from uuid import UUID
 
@@ -30,7 +30,7 @@ async def create_conversation(principal: CurrentPrincipal) -> CreateConversation
 
 @router.get("/conversations/{conversation_id}")
 async def get_conversation(conversation_id: UUID, principal: CurrentPrincipal) -> ConversationView:
-    """Lịch sử đã lọc + đề xuất PENDING. Đồng thời tra lại EXECUTION UNKNOWN (V2.2 mục 7)."""
+    """Lịch sử đã lọc + đề xuất PENDING. Đồng thời tra lại EXECUTION UNKNOWN (V2.3 mục 7)."""
     raise _todo()
 
 

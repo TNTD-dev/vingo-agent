@@ -1,4 +1,4 @@
-# Case từ V2.2 mục 8. Điền `steps`/`assert` khi cài evaluator.
+# Case từ V2.3 mục 8. Điền `steps`/`assert` khi cài evaluator.
 
 - id: B01
   input: "B1: tìm Demo Concert ở Hà Nội"
@@ -111,5 +111,17 @@
 - id: B19
   input: "B1: \"ok\" với thẻ thanh toán"
   expect: "`FORM_REQUIRED`; nhắc điền form; 0 ghi"
+  steps: []
+  assert: []
+
+- id: B20
+  input: "B1: 2 ghế cạnh nhau gần sân khấu khu VIP"
+  expect: "`suggest_seats` trả s1, s2 cùng hàng, `together=true`; chưa đề xuất"
+  steps: []
+  assert: []
+
+- id: B21
+  input: "B1 đã có `ord_b1` PENDING cho st_01, xin giữ thêm"
+  expect: "Không tạo đề xuất; hướng thanh toán hoặc hủy đơn cũ"
   steps: []
   assert: []

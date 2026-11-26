@@ -1,4 +1,4 @@
-"""11 tool đọc của Buyer (V2.2 mục 4.2). Docstring là mô tả tool cho model.
+"""11 tool đọc của Buyer (V2.3 mục 4.2). Docstring là mô tả tool cho model.
 
 Mỗi tool: kiểm Ref → gọi backend → lọc kết quả (projections) → ghi Ref → thêm block → trả envelope.
 """

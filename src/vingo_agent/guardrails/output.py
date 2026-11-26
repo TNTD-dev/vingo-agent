@@ -1,4 +1,4 @@
-"""G9 kiểm câu trả lời sau khi model stream xong (V2.2 mục 3.3). Không thu hồi chữ, chỉ phát notice."""
+"""G9 kiểm câu trả lời sau khi model stream xong (V2.3 mục 3.3). Không thu hồi chữ, chỉ phát notice."""
 
 from dataclasses import dataclass
 

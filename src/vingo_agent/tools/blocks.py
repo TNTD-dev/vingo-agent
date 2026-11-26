@@ -1,4 +1,4 @@
-"""Dựng block từ kết quả đã lọc (V2.2 mục 3.3). Cùng loại block trong một turn thì giữ cái mới nhất."""
+"""Dựng block từ kết quả đã lọc (V2.3 mục 3.3). Cùng loại block trong một turn thì giữ cái mới nhất."""
 
 from typing import Any
 

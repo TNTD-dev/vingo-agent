@@ -1,4 +1,4 @@
-"""Client gọi vingo-backend /api/v1 (V2.2 mục 5.1, G6).
+"""Client gọi vingo-backend /api/v1 (V2.3 mục 5.1, G6).
 
 - Mỗi request: Authorization: Bearer <session token user> + X-Vingo-Agent-Key.
 - Chỉ gọi operation có trong OPERATIONS (path cố định), host lấy từ config, không theo redirect.

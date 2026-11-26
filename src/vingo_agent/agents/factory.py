@@ -10,7 +10,7 @@ def load_prompt(role: Role) -> str:
 
 
 def build_model(primary: str, fallback: str = ""):
-    """Model chính, hoặc FallbackModel(primary, fallback) khi có model dự phòng (V2.2 mục 2).
+    """Model chính, hoặc FallbackModel(primary, fallback) khi có model dự phòng (V2.3 mục 2).
 
     Chỉ fallback với lỗi timeout/5xx/429/kết nối và trước chữ đầu tiên của lần gọi; 4xx khác không fallback.
     """

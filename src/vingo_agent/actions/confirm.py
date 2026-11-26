@@ -1,4 +1,4 @@
-"""Xác nhận/từ chối (V2.2 mục 7, 4.5). Dùng chung cho nút (BUTTON) và tin nhắn (TEXT). Không gọi model."""
+"""Xác nhận/từ chối (V2.3 mục 7, 4.5). Dùng chung cho nút (BUTTON) và tin nhắn (TEXT). Không gọi model."""
 
 from enum import StrEnum
 

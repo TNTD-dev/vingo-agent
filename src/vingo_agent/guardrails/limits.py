@@ -1,4 +1,4 @@
-"""G10 giới hạn turn (V2.2 mục 2): deadline, số model call, số tool call → LIMIT_EXCEEDED, giữ đề xuất đã tạo."""
+"""G10 giới hạn turn (V2.3 mục 2): deadline, số model call, số tool call → LIMIT_EXCEEDED, giữ đề xuất đã tạo."""
 
 from vingo_agent.config import Settings
 

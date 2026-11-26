@@ -1,4 +1,4 @@
-"""Dựng context theo thứ tự V2.2 mục 6 (đầu ổn định để trúng prompt cache):
+"""Dựng context theo thứ tự V2.3 mục 6 (đầu ổn định để trúng prompt cache):
 1 system prompt + schema tool · 2 summary + lịch sử gần (giữ trọn cặp tool call/result) · 3 context động
 (giờ VN, đề xuất PENDING, kết quả thực thi chưa thấy) · 4 tin nhắn mới · 5 kết quả tool của turn.
 """

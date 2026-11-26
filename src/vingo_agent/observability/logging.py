@@ -1,4 +1,4 @@
-"""Log JSON (V2.2 mục 9, G11).
+"""Log JSON (V2.3 mục 9, G11).
 
 Chỉ ghi các field trong ALLOWED_FIELDS. Không log nội dung tin nhắn, tham số tool, body, token, form,
 payment URL, QR.

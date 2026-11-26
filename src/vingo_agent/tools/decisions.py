@@ -1,4 +1,4 @@
-"""Tool quyết định (V2.2 mục 4.5): xác nhận/từ chối bằng tin nhắn. Không nhận tham số.
+"""Tool quyết định (V2.3 mục 4.5): xác nhận/từ chối bằng tin nhắn. Không nhận tham số.
 
 Code lấy action_id từ `deps.visible_action`, không từ model. Điều kiện confirm:
 1. visible_action trùng đề xuất PENDING duy nhất của hội thoại (đúng version);

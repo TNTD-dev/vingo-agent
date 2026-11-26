@@ -1,10 +1,11 @@
 # CLAUDE.md — vingo-agent
 
-Thiết kế `docs/VINGO_AGENT_DESIGN_V2.2.md` là nguồn sự thật. Đọc đúng mục trước khi sửa phần tương ứng:
+Thiết kế `docs/VINGO_AGENT_DESIGN_V2.3.md` là nguồn sự thật. Đọc đúng mục trước khi sửa phần tương ứng:
 
 | Sửa | Đọc mục |
 |---|---|
 | Tool, tham số, output cho model | 4 |
+| Bật/tắt tool theo trạng thái phát hành | 4.6 |
 | Xác nhận, thực thi, tra khi không rõ kết quả | 7, 4.5 |
 | Guardrail, quyền, auth | 5 |
 | Context, compact, bảng `agent` | 6 |

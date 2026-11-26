@@ -1,4 +1,4 @@
-"""10 tool đọc của Admin (V2.2 mục 4.3). `get_seatmap` dùng chung tên với Buyer nhưng projection khác.
+"""10 tool đọc của Admin (V2.3 mục 4.3). `get_seatmap` dùng chung tên với Buyer nhưng projection khác.
 
 Chuỗi lấy ID: get_admin_event → layout_id → get_seat_layout → zone_id → get_seatmap → seat_id.
 """
