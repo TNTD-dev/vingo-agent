@@ -2,6 +2,7 @@
 
 import logging
 from hashlib import sha256
+from inspect import signature
 from uuid import UUID, uuid4
 
 import httpx
@@ -24,7 +25,7 @@ def _json_object(response: httpx.Response) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-async def execute(operation, *, backend, payload, idempotency_key, buyer=None, lookup_only=False):
+async def execute(operation, *, backend, payload, idempotency_key, buyer=None, lookup_only=False, web_blocks=None):
     spec = get_spec(operation)
     from vingo_agent.config import get_settings
 
@@ -43,7 +44,17 @@ async def execute(operation, *, backend, payload, idempotency_key, buyer=None, l
     def outcome(response):
         if response is not None and response.is_success:
             try:
-                return "SUCCEEDED", None, spec.project(_json_object(response))
+                data = _json_object(response)
+                result = spec.project(data)
+                if spec.web_blocks is not None:
+                    blocks = spec.web_blocks(data)
+                    if web_blocks is not None:
+                        web_blocks.extend(blocks)
+                return "SUCCEEDED", None, result
+            except ToolError:
+                if spec.web_blocks is None:
+                    raise
+                return "UNKNOWN", "EXECUTION_UNKNOWN", {}
             except (ValueError, TypeError, KeyError):
                 return "UNKNOWN", "EXECUTION_UNKNOWN", {}
         if response is not None and response.is_client_error:
@@ -86,6 +97,10 @@ async def execute(operation, *, backend, payload, idempotency_key, buyer=None, l
         except (httpx.RequestError, ToolError):
             result = None
         if result is not None:
+            if isinstance(result, tuple):
+                result, blocks = result
+                if web_blocks is not None:
+                    web_blocks.extend(blocks)
             return "SUCCEEDED", None, result
     return "UNKNOWN", "EXECUTION_UNKNOWN", {}
 
@@ -117,7 +132,7 @@ async def load(action_id):
         )
 
 
-async def save(action_id, row, outcome, *, expected, backend=None):
+async def save(action_id, row, outcome, *, expected, backend=None, web_blocks=()):
     status, code, result = outcome
     spec = get_spec(row["operation"])
     async with transaction() as conn:
@@ -153,7 +168,9 @@ async def save(action_id, row, outcome, *, expected, backend=None):
             content["code"] = code
         from vingo_agent.actions.confirm import result_blocks
 
-        blocks = [block.model_dump(mode="json") for block in result_blocks(action_id, row["operation"], outcome)]
+        blocks = result_blocks(action_id, row["operation"], outcome)
+        final = {"text": "", "blocks": [b.model_dump(mode="json") for b in (*blocks, *web_blocks)]}
+        run_hook = status == "SUCCEEDED" and spec.after_success is not None
         # Mỗi transition có bản ghi bất biến để event UNKNOWN cũ giữ đúng block lúc đó.
         result_turn = await conn.scalar(
             insert(turn)
@@ -161,9 +178,9 @@ async def save(action_id, row, outcome, *, expected, backend=None):
                 conversation_id=row["conversation_id"],
                 command_id=uuid4(),
                 command_hash=sha256(str(action_id).encode()).hexdigest(),
-                state="COMPLETED",
-                final_text_and_blocks={"text": "", "blocks": blocks},
-                finished_at=func.now(),
+                state="RUNNING" if run_hook else "COMPLETED",
+                final_text_and_blocks=final,
+                finished_at=None if run_hook else func.now(),
             )
             .returning(turn.c.id)
         )
@@ -176,13 +193,20 @@ async def save(action_id, row, outcome, *, expected, backend=None):
                 content=content,
             )
         )
-    if status == "SUCCEEDED" and spec.after_success is not None:
+    if run_hook:
         # Thao tác ghi đã SUCCEEDED và đã commit: lỗi của bước phụ (vd tự tạo đề xuất thanh toán sau hold)
         # không được biến kết quả thành lỗi 500 hay để turn kẹt RUNNING. Ghi log và trả kết quả thật.
         try:
-            await spec.after_success(
-                action_id=action_id, conversation_id=row["conversation_id"], result=result, backend=backend
+            # Hook cũ giữ nguyên chữ ký. Hook cần snapshot có thể nhận thêm context.
+            extra = {"context": (row, web_blocks)} if "context" in signature(spec.after_success).parameters else {}
+            additions = await spec.after_success(
+                action_id=action_id, conversation_id=row["conversation_id"], result=result, backend=backend, **extra
             )
+            if isinstance(additions, tuple):
+                more_blocks, notices = additions
+                final["blocks"].extend(b.model_dump(mode="json") for b in more_blocks)
+                if notices:
+                    final["notices"] = notices
         except Exception as exc:
             log_event(
                 logging.getLogger(__name__),
@@ -192,6 +216,13 @@ async def save(action_id, row, outcome, *, expected, backend=None):
                 outcome="FAILED",
                 error_code=type(exc).__name__,
             )
+        finally:
+            async with transaction() as conn:
+                await conn.execute(
+                    update(turn)
+                    .where(turn.c.id == result_turn)
+                    .values(state="COMPLETED", final_text_and_blocks=final, finished_at=func.now())
+                )
     return outcome
 
 
@@ -201,7 +232,33 @@ async def run(action_id, *, backend, buyer=None):
         raise ToolError("ACTION_NOT_PENDING")
     if row["execution_state"] != "RUNNING":
         return row["execution_state"], row["error_code"], row["result"] or {}
+    web_blocks = []
     outcome = await execute(
-        row["operation"], backend=backend, payload=row["payload"], idempotency_key=row["idempotency_key"], buyer=buyer
+        row["operation"],
+        backend=backend,
+        payload=row["payload"],
+        idempotency_key=row["idempotency_key"],
+        buyer=buyer,
+        web_blocks=web_blocks,
     )
-    return await save(action_id, row, outcome, expected="RUNNING", backend=backend)
+    return await save(action_id, row, outcome, expected="RUNNING", backend=backend, web_blocks=web_blocks)
+
+
+async def load_web_turn(action_id, conversation_id):
+    # command_hash của turn SYSTEM_EVENT định danh action, kể cả khi confirm dùng command_id mới.
+    async with transaction() as conn:
+        return (
+            (
+                await conn.execute(
+                    select(turn.c.state, turn.c.final_text_and_blocks)
+                    .where(
+                        turn.c.conversation_id == conversation_id,
+                        turn.c.command_hash == sha256(str(action_id).encode()).hexdigest(),
+                    )
+                    .order_by(turn.c.id.desc())
+                    .limit(1)
+                )
+            )
+            .mappings()
+            .first()
+        )

@@ -3,7 +3,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
 
 from vingo_agent.clients.backend import OPERATIONS
 from vingo_agent.tools.base import ToolError
@@ -37,15 +36,18 @@ class OperationSpec:
     result_refs: dict[str, str] = field(default_factory=dict)
     safe_retry: bool = False
     lookup_mode: LookupMode = LookupMode.NONE
-    # READ trả kết quả đã lọc hoặc None nếu chưa có bằng chứng thành công.
-    lookup: Callable[..., Awaitable[dict | None]] | None = None
+    # READ trả kết quả đã lọc (có thể kèm block web), hoặc None khi chưa có bằng chứng.
+    lookup: Callable[..., Awaitable[dict | tuple[dict, list] | None]] | None = None
     check_before: Callable[..., Awaitable[bool]] | None = None
     needs_form: bool = False
     confirm_phrase: Callable[[dict], str | None] | None = None
     result_blocks: Callable[[dict], list] | None = None
     # Chạy sau commit, một lần bởi writer thắng CAS tới SUCCEEDED (kể cả lookup).
-    # Hook nhận action_id/conversation_id/result/backend; không nhận buyer/token đã lưu.
-    after_success: Callable[..., Awaitable[Any]] | None = None
+    # Có thể nhận thêm context=(action, web_blocks) và trả (blocks, notices) cho turn.
+    after_success: Callable[..., Awaitable[tuple[list, list[dict[str, str]]] | None]] | None = None
+    # Chỉ chiếu response gốc thành block cho web. Không đưa các block này vào result.
+    web_blocks: Callable[[dict], list] | None = None
+    messages: dict[str, str] = field(default_factory=dict)
 
 
 _specs: dict[str, OperationSpec] = {}

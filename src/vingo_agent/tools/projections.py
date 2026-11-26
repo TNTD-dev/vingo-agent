@@ -164,7 +164,7 @@ class _SeatMap(BaseModel):
     zones: list[_SeatZone]
 
 
-def _seatmap(raw: dict, scope: dict[str, UUID], row: str | None) -> tuple[dict, bool]:
+def _seatmap(raw: dict, scope: dict, row: str | None) -> tuple[dict, bool]:
     seatmap = _SeatMap.model_validate(raw)
     if "showtime_id" in scope and seatmap.showtime_id != scope["showtime_id"]:
         raise ToolError("INVALID_TOOL_RESULT")
@@ -176,16 +176,19 @@ def _seatmap(raw: dict, scope: dict[str, UUID], row: str | None) -> tuple[dict, 
         raise ToolError("INVALID_TOOL_RESULT")
     price = zone.tier.price if zone.tier is not None else None
     selected_row = row.casefold() if row is not None else None
+    selected_ids = scope.get("seat_ids")
     context = {"truncated": False}
     seats = []
     count = 0
     for seat in zone.seats or []:
         if seat.status != "AVAILABLE" or (selected_row is not None and seat.row.casefold() != selected_row):
             continue
+        if selected_ids is not None and seat.seat_id not in selected_ids:
+            continue
         count += 1
-        if len(seats) < SEATMAP_MAX_SEATS:
+        if selected_ids is not None or len(seats) < SEATMAP_MAX_SEATS:
             seats.append(seat.model_dump(mode="json", context=context) | {"price": price})
-    return {"available_count": count, "seats": seats}, count > SEATMAP_MAX_SEATS or context["truncated"]
+    return {"available_count": count, "seats": seats}, count > len(seats) or context["truncated"]
 
 
 class _SuggestedSeat(BaseModel):
@@ -303,6 +306,15 @@ def _project_buyer(
                 raise ToolError("INVALID_TOOL_RESULT")
         context = {"truncated": False}
         data = view.model_dump(mode="json", exclude_unset=True, context=context)
+        # Kiểm đề xuất trên đúng đối tượng trước khi bound_result cắt danh sách dài cho model.
+        for op, collection, key in (
+            ("getAvailability", "zones", "zone_id"),
+            ("listMyOrders", "items", "showtime_id"),
+            ("listMyTickets", "items", "ticket_id"),
+            ("listEventShowtimes", "items", "showtime_id"),
+        ):
+            if operation == op and key in scope:
+                data[collection] = [item for item in data[collection] if item[key] == str(scope[key])]
         return data, context["truncated"]
     except ValidationError:
         raise ToolError("INVALID_TOOL_RESULT") from None
