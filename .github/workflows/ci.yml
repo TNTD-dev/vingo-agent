@@ -1,0 +1,44 @@
+name: ci
+
+# Chạy trên PR. main và develop bắt buộc qua PR có check `verify` xanh (ruleset).
+# Runner của GitHub (repo public miễn phí); runner AWS tự host chỉ gắn với vingo-backend.
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Lint
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+      - name: Unit test
+        run: uv run pytest tests/unit
+      # Testcontainers kéo postgres:18; Docker có sẵn trên ubuntu-latest.
+      - name: Integration test
+        run: uv run pytest tests/integration
+      # Chưa có release contract-v*; tạm đối chiếu với nhánh develop của vingo-backend.
+      # Khi có tag, ghim bằng file CONTRACT_VERSION và tải asset từ release.
+      - uses: actions/checkout@v4
+        with:
+          repository: TNTD-dev/vingo-backend
+          ref: develop
+          path: .backend
+          sparse-checkout: contracts/vingo-openapi.yaml
+          sparse-checkout-cone-mode: false
+      - name: Operation agent dùng khớp contract backend
+        run: uv run python scripts/sync_contract.py .backend/contracts/vingo-openapi.yaml

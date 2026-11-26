@@ -94,6 +94,8 @@ uv run pytest tests/integration          # cần Docker, kéo image postgres:18 
 uv run python scripts/sync_contract.py   # 30 operationId agent dùng khớp ../vingo-backend/contracts/vingo-openapi.yaml
 ```
 
+CI (`.github/workflows/ci.yml`) chạy đủ các bước trên cho mỗi PR, check tên `verify`; CodeQL quét Python và workflow. `main` và `develop` chỉ nhận thay đổi qua PR có các check này xanh.
+
 ## Cấu trúc
 
 Cây thư mục và trách nhiệm từng file: thiết kế mục 10.
