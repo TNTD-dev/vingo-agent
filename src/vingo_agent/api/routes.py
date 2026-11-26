@@ -15,6 +15,7 @@ from vingo_agent.api.sse import EventType, StreamEvent
 from vingo_agent.clients.backend import BackendClient
 from vingo_agent.config import get_settings
 from vingo_agent.persistence import repositories as repo
+from vingo_agent.schemas.blocks import ConfirmAction
 from vingo_agent.schemas.chat import (
     ConfirmRequest,
     ConversationView,
@@ -100,8 +101,8 @@ async def confirm_action(action_id: UUID, body: ConfirmRequest, principal: Curre
     turn_id = result_turn["id"]
     if not result_turn["_created"]:
         final = result_turn["final_text_and_blocks"] or {}
-        if result_turn["state"] == "COMPLETED":
-            return _confirm_stream(turn_id, final.get("blocks", []))
+        if result_turn["state"] in {"COMPLETED", "AWAITING_CONFIRMATION"}:
+            return _confirm_stream(turn_id, final.get("blocks", []), final.get("notices", []), result_turn["state"])
         if result_turn["state"] == "FAILED":
             code = final.get("code", "ACTION_NOT_PENDING")
             if code in SSE_REFUSALS:
@@ -109,28 +110,34 @@ async def confirm_action(action_id: UUID, body: ConfirmRequest, principal: Curre
             raise HTTPException(403 if code == "FORBIDDEN" else 409, code)
         # RUNNING do request khác hoặc process chết: CAS action là khóa thực thi.
         # Cho service confirm chờ/đọc execution, không chặn vĩnh viễn trên turn.
+    notices = []
     try:
-        outcome, blocks = await confirm(
+        _, blocks = await confirm(
             action_id=action_id,
             version=body.version,
             principal=principal,
             via=ConfirmedVia.BUTTON,
             buyer=body.buyer,
             confirm_phrase=body.confirm_phrase,
+            notices=notices,
         )
     except ToolError as error:
         await repo.transition_turn(turn_id, "RUNNING", "FAILED", final_text_and_blocks={"code": error.code})
         if error.code in SSE_REFUSALS:
             return _confirm_failed(turn_id, error.code)
         raise HTTPException(403 if error.code == "FORBIDDEN" else 409, error.code) from None
+    final = {"text": "", "blocks": [block.model_dump(mode="json") for block in blocks]}
+    state = "AWAITING_CONFIRMATION" if any(isinstance(b, ConfirmAction) for b in blocks) else "COMPLETED"
+    if notices:
+        final["notices"] = notices
     await repo.transition_turn(
         turn_id,
         "RUNNING",
-        "COMPLETED",
-        final_text_and_blocks={"text": "", "blocks": [block.model_dump(mode="json") for block in blocks]},
+        state,
+        final_text_and_blocks=final,
     )
 
-    return _confirm_stream(turn_id, [block.model_dump(mode="json") for block in blocks])
+    return _confirm_stream(turn_id, final["blocks"], notices, state)
 
 
 # Mã từ chối không có trong ErrorCode của backend: trả HTTP 409 thì backend chuyển thành 503.
@@ -150,7 +157,7 @@ def _confirm_failed(turn_id, code):
     )
 
 
-def _confirm_stream(turn_id, blocks):
+def _confirm_stream(turn_id, blocks, notices=(), state="COMPLETED"):
     async def encoded():
         yield StreamEvent(
             turn_id=turn_id, seq=1, type=EventType.TURN_STARTED, payload={"turn_id": str(turn_id)}
@@ -161,8 +168,18 @@ def _confirm_stream(turn_id, blocks):
             yield StreamEvent(
                 turn_id=turn_id, seq=seq, type=EventType.BLOCK, payload={"type": data.pop("type"), "payload": data}
             ).encode()
+        for seq, notice in enumerate(notices, len(blocks) + 2):
+            yield StreamEvent(
+                turn_id=turn_id,
+                seq=seq,
+                type=EventType.NOTICE,
+                payload={"level": notice["level"], "text": notice["text"]},
+            ).encode()
         yield StreamEvent(
-            turn_id=turn_id, seq=len(blocks) + 2, type=EventType.TURN_COMPLETED, payload={"status": "COMPLETED"}
+            turn_id=turn_id,
+            seq=len(blocks) + len(notices) + 2,
+            type=EventType.TURN_COMPLETED,
+            payload={"status": state},
         ).encode()
 
     return StreamingResponse(

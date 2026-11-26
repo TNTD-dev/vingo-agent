@@ -17,13 +17,15 @@ async def resolve(action_id, *, backend):
         state = "UNKNOWN"
     if state != "UNKNOWN":
         return state, row["error_code"], row["result"] or {}
+    web_blocks = []
     outcome = await runner.execute(
         row["operation"],
         backend=backend,
         payload=row["payload"],
         idempotency_key=row["idempotency_key"],
         lookup_only=True,
+        web_blocks=web_blocks,
     )
     if outcome[0] == "UNKNOWN":
         return outcome
-    return await runner.save(action_id, row, outcome, expected="UNKNOWN", backend=backend)
+    return await runner.save(action_id, row, outcome, expected="UNKNOWN", backend=backend, web_blocks=web_blocks)

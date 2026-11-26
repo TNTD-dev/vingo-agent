@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import uuid4
 
+from pydantic import TypeAdapter
 from sqlalchemy import insert, select, update
 
 from vingo_agent.actions import execution as runner
@@ -12,8 +13,11 @@ from vingo_agent.actions.registry import get_spec
 from vingo_agent.config import get_settings
 from vingo_agent.persistence.db import transaction
 from vingo_agent.persistence.models import conversation, execution, pending_action
-from vingo_agent.schemas.blocks import ActionResult
+from vingo_agent.schemas.blocks import ActionResult, Block
 from vingo_agent.tools.base import ToolError
+
+AFTER_SUCCESS_POLL_INTERVAL_S = 0.2
+AFTER_SUCCESS_WAIT_TIMEOUT_S = 10
 
 
 class ConfirmedVia(StrEnum):
@@ -48,6 +52,7 @@ def result_blocks(action_id, operation, outcome):
     # RUNNING do request khác đang xử lý không phải bằng chứng thất bại/thành công.
     status = "UNKNOWN" if status == "RUNNING" else status
     code = "EXECUTION_UNKNOWN" if status == "UNKNOWN" else code
+    spec = get_spec(operation)
     blocks = [
         ActionResult(
             action_id=action_id,
@@ -58,17 +63,25 @@ def result_blocks(action_id, operation, outcome):
                 "SUCCEEDED": "Thao tác thành công.",
                 "FAILED": "Thao tác không thành công.",
                 "UNKNOWN": "Chưa rõ kết quả; vui lòng kiểm tra lại hội thoại.",
+                **spec.messages,
             }[status],
         )
     ]
-    spec = get_spec(operation)
     if status == "SUCCEEDED" and spec.result_blocks:
         blocks.extend(spec.result_blocks(result))
     return blocks
 
 
 async def confirm(
-    *, action_id, version: int, principal, via: ConfirmedVia, buyer=None, confirm_phrase=None, backend=None
+    *,
+    action_id,
+    version: int,
+    principal,
+    via: ConfirmedVia,
+    buyer=None,
+    confirm_phrase=None,
+    backend=None,
+    notices=None,
 ):
     expired = False
     claimed = False
@@ -148,6 +161,21 @@ async def confirm(
                     outcome = current["execution_state"], current["error_code"], current["result"] or {}
         except TimeoutError:
             outcome = "UNKNOWN", "EXECUTION_UNKNOWN", {}
+    if outcome[0] == "SUCCEEDED" and (spec.web_blocks or spec.after_success):
+        saved = await runner.load_web_turn(action_id, row["conversation_id"])
+        if saved:
+            # Confirm đồng thời chờ writer hoàn tất hook sau commit, không chạy lại hook.
+            try:
+                async with asyncio.timeout(AFTER_SUCCESS_WAIT_TIMEOUT_S):
+                    while saved["state"] == "RUNNING":
+                        await asyncio.sleep(AFTER_SUCCESS_POLL_INTERVAL_S)
+                        saved = await runner.load_web_turn(action_id, row["conversation_id"])
+            except TimeoutError:
+                pass
+            final = saved["final_text_and_blocks"]
+            if notices is not None:
+                notices.extend(final.get("notices", []))
+            return outcome, TypeAdapter(list[Block]).validate_python(final["blocks"])
     return outcome, result_blocks(action_id, operation, outcome)
 
 
