@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from sqlalchemy import func, insert, or_, select, update
+from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from vingo_agent.persistence import models as m
@@ -29,11 +29,16 @@ async def get_conversation(conversation_id):
 
 async def create_turn(conversation_id, command_id, command_hash):
     async with transaction() as conn:
-        await conn.execute(
-            pg_insert(m.turn)
-            .values(conversation_id=conversation_id, command_id=command_id, command_hash=command_hash, state="RUNNING")
-            .on_conflict_do_nothing(index_elements=["conversation_id", "command_id"])
-        )
+        created = (
+            await conn.execute(
+                pg_insert(m.turn)
+                .values(
+                    conversation_id=conversation_id, command_id=command_id, command_hash=command_hash, state="RUNNING"
+                )
+                .on_conflict_do_nothing(index_elements=["conversation_id", "command_id"])
+                .returning(m.turn.c.id)
+            )
+        ).scalar_one_or_none()
         row = (
             (
                 await conn.execute(
@@ -45,7 +50,7 @@ async def create_turn(conversation_id, command_id, command_hash):
         )
         if row["command_hash"] != command_hash:
             raise ValueError("COMMAND_CONFLICT")
-        return dict(row)
+        return {**dict(row), "_created": created is not None}
 
 
 async def transition_turn(turn_id, expected, state, *, final_text_and_blocks=None):
@@ -201,3 +206,51 @@ async def add_refs(conversation_id, resource_type, ids):
             )
             .on_conflict_do_nothing()
         )
+
+
+async def get_turn(turn_id):
+    async with transaction() as conn:
+        return (await conn.execute(select(m.turn).where(m.turn.c.id == turn_id))).mappings().one_or_none()
+
+
+async def get_messages(conversation_id):
+    async with transaction() as conn:
+        return (
+            (
+                await conn.execute(
+                    select(m.message).where(m.message.c.conversation_id == conversation_id).order_by(m.message.c.seq)
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+
+async def get_pending_action(conversation_id):
+    async with transaction() as conn:
+        row = (
+            (
+                await conn.execute(
+                    select(m.pending_action).where(
+                        m.pending_action.c.conversation_id == conversation_id,
+                        m.pending_action.c.state == "PENDING",
+                        m.pending_action.c.expires_at > func.now(),
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if not row:
+            return None
+        return {"action_id": row["id"], **{key: row[key] for key in ("version", "operation", "expires_at", "display")}}
+
+
+async def set_model_version(turn_id, model_version):
+    async with transaction() as conn:
+        await conn.execute(update(m.turn).where(m.turn.c.id == turn_id).values(model_version=model_version))
+
+
+async def discard_unstarted_turn(turn_id):
+    async with transaction() as conn:
+        await conn.execute(delete(m.turn).where(m.turn.c.id == turn_id, m.turn.c.state == "RUNNING"))
