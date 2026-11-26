@@ -186,9 +186,9 @@ Text đã stream không bị thu hồi; block và notice là nguồn đúng. Đ�
 |---|---|
 | EventList | `items:[{event_id,title,city_name,venue_name,first_starts_at,price_from,on_sale}]` |
 | ShowtimeList | `items:[{showtime_id,starts_at,venue_name,status,sold_out}]` |
-| ZoneAvailability | `showtime_id, zones:[{zone_id,name,seating,price,seats_left}]` |
+| ZoneAvailability | `showtime_id, zones:[{zone_id,name,seating,price,seats_left}]` (chỉ khu đã có giá) |
 | SeatMap | `showtime_id, zone_id, available_count, seats:[{seat_id,row,number,price}]` |
-| OrderSummary | `order_id,code,status,event_title,starts_at,items:[{zone,row?,number?,price}],total_amount,expires_at?` |
+| OrderSummary | `order_id,code,status,event_title,starts_at,items:[{zone,row?,number?,price,quantity}],total_amount,expires_at?` |
 | PaymentStatus | `order_id,status,amount,expires_at` |
 | PaymentLink | `order_id,payment_url,expires_at` (chỉ từ kết quả thực thi, không vào model) |
 | TicketList | `items:[{ticket_id,code,status,event_title,starts_at,zone,row?,number?}]` |
@@ -199,7 +199,7 @@ Text đã stream không bị thu hồi; block và notice là nguồn đúng. Đ�
 
 ## 4. Tools
 
-18 tool Buyer + 37 tool Admin (`get_seatmap`, `confirm_pending_action`, `reject_pending_action` dùng chung; 52 tên). Không có tool execute, SQL hay HTTP tùy ý. Tool nào bật mặc định xem mục 4.6.
+17 tool Buyer + 37 tool Admin (`get_seatmap`, `confirm_pending_action`, `reject_pending_action` dùng chung; 51 tên). Không có tool execute, SQL hay HTTP tùy ý. Tool nào bật mặc định xem mục 4.6.
 
 ### 4.1 Quy ước chung
 
@@ -216,26 +216,31 @@ Schema tool không có `user_id`, `role`, token, URL, giá hay Idempotency-Key; 
 
 **Mã lỗi tool:** dùng nguyên mã lỗi backend (`SEAT_TAKEN`, `NOT_ENOUGH_STOCK`, `SHOWTIME_NOT_ON_SALE`, `ORDER_STATE_INVALID`, `HOLD_EXPIRED`, `MAX_TICKETS_EXCEEDED`, `PROFILE_REQUIRED`, `EVENT_INCOMPLETE`, `EVENT_LOCKED`, `SHOWTIME_LOCKED`, `TICKET_USED`, `TICKET_NOT_VALID`, `FORBIDDEN`, `NOT_FOUND`, `RATE_LIMITED`, `VALIDATION_ERROR`). Agent thêm: `INVALID_ARGUMENT`, `INVALID_REFERENCE`, `INVALID_TOOL_RESULT`, `BACKEND_UNAVAILABLE` (5xx/timeout khi đọc), `EXECUTION_UNKNOWN`, `LIMIT_EXCEEDED`, `CONTEXT_LIMIT`, `TURN_IN_PROGRESS`, `ACTION_NOT_PENDING`, `FORM_REQUIRED`, `STALE_PROPOSAL`, `CONFIRM_PHRASE_REQUIRED`, `PROPOSAL_ALREADY_CREATED` (đề xuất thứ hai trong cùng turn). Tool đọc gặp 429/5xx: thử lại tối đa 2 lần, tôn trọng `Retry-After`.
 
-### 4.2 Buyer — đọc (12)
+### 4.2 Buyer — đọc (11)
+
+Cột "Gọi": operationId và endpoint backend (base `/api/v1`).
 
 | Tool | Gọi | Input | Output cho model | Block |
 |---|---|---|---|---|
-| `search_events` | `searchEvents` | `q?, category?, city?, from?, to?, price_min?, price_max?, sort?: relevance\|starts_at\|price\|popularity, cursor?, limit?` | `items:[{event_id,title,category,city_name,venue_name,first_starts_at,price_from,on_sale}], next_cursor?` | EventList |
-| `get_event` | `getEvent` | `event_id` | `event_id,title,category,status,description?,venue_name,max_tickets_per_order,tiers:[{name,price}]` | — |
-| `list_event_showtimes` | `listEventShowtimes` | `event_id` | `items:[{showtime_id,starts_at,ends_at,venue_name,status,sold_out,sale_opens_at}]` | ShowtimeList |
-| `get_availability` | `getAvailability` | `showtime_id` | `showtime_id,status,sold_out,zones:[{zone_id,name,seating: STANDING\|SEATED,tier_name,price,seats_left}]` (`seating` = STANDING khi `sku_id` khác null) | ZoneAvailability |
-| `get_seatmap` | `getSeatmap?zone_id=` | `showtime_id, zone_id, row?` | Chỉ ghế AVAILABLE: `available_count, seats:[{seat_id,row,number,price}]` tối đa 60 ghế, xếp theo hàng; nhiều hơn thì `truncated=true`, model hỏi user chọn hàng | SeatMap |
-| `suggest_seats` | agent tự tính từ `getSeatmap` (khi backend có endpoint gợi ý thì đổi sang) | `showtime_id, zone_id, quantity (1–20), position?: FRONT\|MIDDLE\|BACK` | `seats:[{seat_id,row,number}], together, seats_left, unit_price, total` | SeatMap |
-| `get_me` | `getMe` | — | `email_verified, has_full_name, has_phone` (không trả email, SĐT) | — |
-| `list_my_orders` | `listMyOrders` | `status?, cursor?, limit?` | `items:[OrderView], next_cursor?` | — |
-| `get_order` | `getOrder` | `order_id` | `OrderView` | OrderSummary |
-| `get_payment` | `getPayment` | `order_id` | `order_id,status,amount,expires_at` (không trả `payment_url`) | PaymentStatus |
-| `list_my_tickets` | `listMyTickets` | `when?: upcoming\|past, status?, cursor?, limit?` | `items:[TicketView], next_cursor?` | TicketList |
-| `get_ticket` | `getTicket` | `ticket_id` | `TicketView` (không trả `qr_token`) | TicketList |
+| `search_events` | `searchEvents`<br>`GET /events` | `q?, category?, city?, from?, to?, price_min?, price_max?, sort?: relevance\|starts_at\|price\|popularity, cursor?, limit?` | `items:[{event_id,title,category,city_name,venue_name,first_starts_at,price_from,on_sale}], next_cursor?` | EventList |
+| `get_event` | `getEvent`<br>`GET /events/{event_id}` | `event_id` | `event_id,title,category,status,description?,venue_name,max_tickets_per_order,tiers:[{name,price}]` | — |
+| `list_event_showtimes` | `listEventShowtimes`<br>`GET /events/{event_id}/showtimes` | `event_id` | `items:[{showtime_id,starts_at,ends_at,venue_name,status,sold_out,sale_opens_at}]` | ShowtimeList |
+| `get_availability` | `getAvailability`<br>`GET /showtimes/{showtime_id}/availability` | `showtime_id` | `showtime_id,status,sold_out,zones:[{zone_id,name,seating: STANDING\|SEATED,tier_name,price,seats_left}]` (`seating` lấy từ `kind` của API) | ZoneAvailability |
+| `get_seatmap` | `getSeatmap`<br>`GET /showtimes/{showtime_id}/seatmap?zone_id=` | `showtime_id, zone_id, row?` | Chỉ ghế AVAILABLE: `available_count, seats:[{seat_id,row,number,price}]` tối đa 60 ghế, xếp theo hàng; nhiều hơn thì `truncated=true`, model hỏi user chọn hàng | SeatMap |
+| `suggest_seats` | `suggestSeats`<br>`GET /showtimes/{showtime_id}/seat-suggestions?zone_id=&quantity=&position=` | `showtime_id, zone_id, quantity (1–10), position?: FRONT\|MIDDLE\|BACK` | `seats:[{seat_id,row,number,row_rank}], together, seats_left, unit_price, total` | SeatMap |
+| `get_me` | `getMe`<br>`GET /me` | — | `has_full_name, has_phone` (không trả email, SĐT) | — |
+| `list_my_orders` | `listMyOrders`<br>`GET /orders` | `status?, cursor?, limit?` | `items:[OrderView], next_cursor?` | — |
+| `get_order` | `getOrder`<br>`GET /orders/{order_id}` | `order_id` | `OrderView` | OrderSummary |
+| `get_payment` | `getPayment`<br>`GET /orders/{order_id}/payment` | `order_id` | `order_id,status,amount,expires_at` (không trả `payment_url`) | PaymentStatus |
+| `list_my_tickets` | `listMyTickets`<br>`GET /tickets` | `when?: upcoming\|past, status?, cursor?, limit?` | `items:[TicketView], next_cursor?` (không trả `qr_token`) | TicketList |
 
-`OrderView = {order_id,code,status,showtime_id,event_title,starts_at,items:[{zone,row?,number?,price}],total_amount,expires_at?,paid_at?}`.
+Không có `get_ticket`: dữ liệu trùng `list_my_tickets`.
 
-`suggest_seats` (agent tự tính): lấy ghế AVAILABLE của khu, ưu tiên `quantity` ghế liền số trong cùng hàng; `position` chia hàng thành ba phần theo thứ tự hàng; không đủ ghế liền nhau thì trả ghế gần nhau nhất với `together=false`. Ghế đôi giữ nguyên cặp. Kết quả chỉ là gợi ý; giữ vé vẫn qua `propose_hold_seats`.
+`OrderView = {order_id,code,status,showtime_id,event_title,starts_at,items:[{zone,row?,number?,price,quantity}],total_amount,expires_at?,paid_at?}` (`quantity`: ghế ngồi luôn 1, khu đứng là số chỗ).
+
+Khu chưa gán hạng giá: `get_availability` vẫn trả khu đó với `tier_name, price = null` (không bán được), block ZoneAvailability bỏ khu đó; `get_seatmap` trả ghế với `price = null`.
+
+`suggest_seats` gọi backend `GET /showtimes/{showtime_id}/seat-suggestions`: backend chọn `quantity` ghế trống liền số trong cùng hàng, duyệt hàng theo `position` (hàng số nhỏ nhất sát sân, `row_rank` 1 = sát sân; FRONT từ hàng đầu, BACK từ hàng cuối, MIDDLE ưu tiên hàng giữa); không đủ ghế liền nhau thì trả ghế gần nhau nhất với `together=false`; khu còn ít hơn `quantity` ghế thì `seats=[]`. `position` chỉ xếp hàng trong khu đã chọn. Kết quả chỉ là gợi ý; giữ vé vẫn qua `propose_hold_seats`.
 `TicketView = {ticket_id,code,status,order_code,event_title,starts_at,zone,row?,number?}`.
 Enum giữ nguyên backend: `OrderStatus = PENDING|PAID|EXPIRED|CANCELLED|NEEDS_REVIEW|REJECTED`, `PaymentStatus = OPEN|SUCCEEDED|FAILED|EXPIRED`, `TicketStatus = ISSUED|USED|VOID`. Giá trị lạ → `INVALID_TOOL_RESULT`.
 
@@ -253,7 +258,7 @@ Enum giữ nguyên backend: `OrderStatus = PENDING|PAID|EXPIRED|CANCELLED|NEEDS_
 | `list_my_orders` | Nhắc "đơn của tôi" hoặc mã đơn | "Mình có đơn nào chưa trả?" |
 | `get_order` | Cần trạng thái mới nhất của một đơn | "Còn bao lâu hết giữ ghế?" |
 | `get_payment` | Hỏi đã trả tiền chưa (gọi cùng `get_order`) | "Trả tiền chưa?" |
-| `list_my_tickets`, `get_ticket` | Xem vé, xin QR, chọn vé gửi lại | "Vé của mình đâu?" |
+| `list_my_tickets` | Xem vé, xin QR, chọn vé gửi lại; vé đã qua thì `when=past` | "Vé của mình đâu?", "Vé tuần trước" |
 | `propose_hold_seats` | Muốn mua, đã đủ suất, khu, số lượng, ghế | "Lấy 2 ghế đó" |
 | `propose_create_payment` | Có đơn đang giữ (thường code đã tự hiện thẻ sau khi giữ vé) | "Thanh toán luôn" |
 | `propose_cancel_order` | Muốn hủy đơn chưa trả | "Hủy đơn đó đi" |
@@ -304,10 +309,10 @@ Chưa có metric tỷ lệ chuyển đổi trong backend; biểu đồ và xuấ
 
 | Tool | Input | Code kiểm và chụp snapshot | Thực thi bằng | Hạn đề xuất |
 |---|---|---|---|---|
-| `propose_hold_seats` | `showtime_id, zone_id, quantity, seat_ids?` | Đọc lại `getAvailability`; suất ON_SALE; khu ngồi: `len(seat_ids) == quantity`, khu đứng: không có `seat_ids`; `quantity ≤ max_tickets_per_order`; `listMyOrders(PENDING)` chưa có đơn cho suất này; snapshot giá × số lượng. Code gửi backend đúng một dạng: khu ngồi chỉ `seat_ids`, khu đứng `zone_id + quantity` | `holdSeats` (Idempotency-Key) | 5 phút |
-| `propose_create_payment` | `order_id` | Đơn PENDING, còn hạn; snapshot `total_amount` | `createPayment` (Idempotency-Key, `buyer` từ form) | Bằng hạn giữ ghế còn lại |
-| `propose_cancel_order` | `order_id` | Đơn PENDING | `cancelOrder` | Bằng hạn giữ ghế còn lại |
-| `propose_resend_my_ticket` | `ticket_id` | Vé ISSUED | `resendMyTicket` | 10 phút |
+| `propose_hold_seats` | `showtime_id, zone_id, quantity, seat_ids?` | Đọc lại `getAvailability`; suất ON_SALE; khu ngồi: `len(seat_ids) == quantity`, khu đứng: không có `seat_ids`; `quantity ≤ max_tickets_per_order`; `listMyOrders(PENDING)` chưa có đơn cho suất này; snapshot giá × số lượng. Code gửi backend đúng một dạng: khu ngồi chỉ `seat_ids`, khu đứng `zone_id + quantity` | `holdSeats` `POST /showtimes/{showtime_id}/holds` (Idempotency-Key) | 5 phút |
+| `propose_create_payment` | `order_id` | Đơn PENDING, còn hạn; snapshot `total_amount` | `createPayment` `POST /orders/{order_id}/payments` (Idempotency-Key, `buyer` từ form) | Bằng hạn giữ ghế còn lại |
+| `propose_cancel_order` | `order_id` | Đơn PENDING | `cancelOrder` `POST /orders/{order_id}/cancel` | Bằng hạn giữ ghế còn lại |
+| `propose_resend_my_ticket` | `ticket_id` | Vé ISSUED | `resendMyTicket` `POST /tickets/{ticket_id}/resend` | 10 phút |
 | `propose_create_event` | `title, category, description?, seat_layout_id?, home_team?, away_team?, league?, round?, poster_mobile_url?, poster_desktop_url?, max_tickets_per_order?` | Poster là URL http(s) | `createEvent` | 10 phút |
 | `propose_create_showtime` | `event_id, layout_id, starts_at, ends_at, sale_opens_at, sale_closes_at` | `sale_opens_at < sale_closes_at ≤ starts_at < ends_at`; layout PUBLISHED | `createShowtime` | 10 phút |
 | `propose_publish_event` | `event_id` | Event DRAFT | `publishEvent` | 10 phút |
@@ -352,12 +357,11 @@ Mọi tool đều được code và test. Tool chưa READY nằm trong `AGENT_DI
 
 | Trạng thái | Tool | Điều kiện để bật |
 |---|---|---|
-| **READY** | Toàn bộ tool đọc Buyer/Admin (kể cả `suggest_seats` bản agent tự tính), 4 đề xuất Buyer, `propose_create_event`, `propose_create_showtime`, `propose_publish_event`, `propose_block_seats`, `propose_unblock_seats`, `propose_admin_resend_ticket`, `propose_create_venue`, 2 tool quyết định | — |
+| **READY** | Toàn bộ tool đọc Buyer/Admin, 4 đề xuất Buyer, `propose_create_event`, `propose_create_showtime`, `propose_publish_event`, `propose_block_seats`, `propose_unblock_seats`, `propose_admin_resend_ticket`, `propose_create_venue`, 2 tool quyết định | — |
 | **READY, kiểm `before`** | `propose_update_venue`, `propose_update_event`, `propose_update_showtime`, `propose_update_price_tiers`, `propose_add_tier_price`, `propose_update_zone_prices` | Eval A12–A14 đạt. Nên có version/ETag ở backend để đóng khoảng hở (mục 11) |
 | **NEEDS_PLATFORM** | `propose_cancel_event`, `propose_cancel_showtime` | Xác nhận có `confirm_phrase` trên web + agent |
 | **NEEDS_PLATFORM** | `propose_seat_layout`, poster tải từ máy | `POST /chat/uploads` (backend proxy) + web chọn file |
 | **NEEDS_BACKEND** | `propose_update_event_visibility` | Endpoint `PUT /admin/events/{id}/visibility` vào contract |
-| **NEEDS_BACKEND** (tuỳ chọn) | `suggest_seats` bản backend | Endpoint gợi ý ghế; khi có thì thay phần tự tính, giữ nguyên tên tool |
 
 ## 5. Quyền và an toàn (guardrails)
 

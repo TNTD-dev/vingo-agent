@@ -35,12 +35,12 @@ OPERATIONS: dict[str, Operation] = {
     "listEventShowtimes": Operation("GET", "/events/{event_id}/showtimes"),
     "getAvailability": Operation("GET", "/showtimes/{showtime_id}/availability"),
     "getSeatmap": Operation("GET", "/showtimes/{showtime_id}/seatmap"),
+    "suggestSeats": Operation("GET", "/showtimes/{showtime_id}/seat-suggestions"),
     "getMe": Operation("GET", "/me"),
     "listMyOrders": Operation("GET", "/orders"),
     "getOrder": Operation("GET", "/orders/{order_id}"),
     "getPayment": Operation("GET", "/orders/{order_id}/payment"),
     "listMyTickets": Operation("GET", "/tickets"),
-    "getTicket": Operation("GET", "/tickets/{ticket_id}"),
     # Admin đọc
     "getAdminDashboard": Operation("GET", "/admin/dashboard"),
     "queryMetric": Operation("GET", "/admin/reports/metrics"),
@@ -122,9 +122,7 @@ class BackendClient:
                 code = (
                     "BACKEND_UNAVAILABLE"
                     if response.status_code >= 500
-                    else "RATE_LIMITED"
-                    if response.status_code == 429
-                    else "INVALID_TOOL_RESULT"
+                    else {404: "NOT_FOUND", 429: "RATE_LIMITED"}.get(response.status_code, "INVALID_TOOL_RESULT")
                 )
                 if not retryable:
                     try:
@@ -133,7 +131,7 @@ class BackendClient:
                             code = candidate
                     except (ValueError, AttributeError):
                         pass
-                raise ToolError(code, retryable=retryable)
+                raise ToolError(code, retryable=retryable, http_status=response.status_code)
             try:
                 data = response.json()
                 if not isinstance(data, dict):
