@@ -1,45 +1,116 @@
 # vingo-agent
 
-Trợ lý chat mua vé (Buyer) và quản trị (Admin) của Vingo. Thiết kế: [docs/VINGO_AGENT_DESIGN_V2.2.md](docs/VINGO_AGENT_DESIGN_V2.2.md).
+Trợ lý chat của Vingo: giúp người mua tìm sự kiện, giữ vé, thanh toán, xem vé; giúp admin tra cứu số liệu và tạo/công bố sự kiện.
 
-Dịch vụ nội bộ: chỉ module `chat` của vingo-backend gọi vào (`/internal/v1/*`, SSE). Agent gọi backend qua REST `/api/v1`
-bằng session token của user, lưu hội thoại và đề xuất ở schema Postgres `agent`. Model không bao giờ ghi nghiệp vụ:
-tool ghi chỉ tạo đề xuất, user xác nhận (nút hoặc nhắn đồng ý) thì code thực thi.
+> **Trạng thái: khung.** App chạy được, auth và validate request đã có, các route nghiệp vụ trả `501`. Tool, guardrail và luồng thực thi còn là stub (`NotImplementedError`).
 
-**Trạng thái: khung.** Route trả 501, tool/guardrail/actions còn `NotImplementedError`. Đã có thật: config, schema
-mã lỗi / SSE / block / API, migration 7 bảng, registry tool theo role, kiểm auth G1.
+Thiết kế đầy đủ: [docs/VINGO_AGENT_DESIGN_V2.2.md](docs/VINGO_AGENT_DESIGN_V2.2.md).
+
+## Kiến trúc
+
+```mermaid
+flowchart LR
+    W[vingo-web] -->|REST + SSE| B[vingo-backend /api/v1]
+    B -->|/internal/v1, SSE| A[vingo-agent]
+    A -->|REST /api/v1, token của user| B
+    A --> DB[(Postgres schema agent)]
+    A --> M[GPT-6 Luna / DeepSeek V4.1 Flash]
+```
+
+- **Dịch vụ nội bộ.** Chỉ module `chat` của vingo-backend gọi vào. Web không gọi trực tiếp.
+- **Backend là nguồn sự thật.** Agent đọc và ghi nghiệp vụ qua REST `/api/v1` bằng session token của user, nên backend kiểm quyền mọi lần gọi.
+- **Model không ghi nghiệp vụ.** Tool ghi chỉ tạo *đề xuất*. User xác nhận bằng nút trên thẻ hoặc nhắn đồng ý thì code thực thi đúng payload đã lưu, không qua model.
+- **Lưu trữ riêng.** Hội thoại, đề xuất và lịch sử thực thi nằm ở schema Postgres `agent` (7 bảng), không đụng bảng nghiệp vụ.
+- **Model dự phòng.** GPT-6 Luna lỗi (timeout, 5xx, 429) trước khi trả chữ thì tự chuyển sang DeepSeek V4.1 Flash.
+
+## Yêu cầu
+
+- Python 3.12 và [uv](https://docs.astral.sh/uv/)
+- PostgreSQL 18 (dùng `uuidv7()`): dùng chung Postgres của vingo-backend (`deploy/compose.dev.yaml`)
+- Docker (chỉ để chạy test integration)
+- vingo-backend chạy ở `localhost:8080`, repo nằm cạnh repo này (`../vingo-backend`)
 
 ## Chạy local
 
-```bash
-uv sync
-cp .env.example .env          # điền key dịch vụ, AGENT_MODEL, AGENT_FALLBACK_MODEL và key provider
-uv run alembic upgrade head   # cần Postgres 18 (uuidv7) của backend, role vingo_agent
-uv run uvicorn vingo_agent.api.app:app --host 127.0.0.1 --port 8000
-```
+1. Cài dependency và tạo file môi trường:
+
+   ```bash
+   uv sync
+   cp .env.example .env
+   ```
+
+   Điền vào `.env`:
+
+   | Biến | Ý nghĩa |
+   |---|---|
+   | `AGENT_SERVICE_KEY` | Khoá backend dùng khi gọi agent (header `X-Agent-Service-Key`); phải giống cấu hình backend |
+   | `AGENT_TO_BACKEND_KEY` | Khoá agent gửi lên backend (header `X-Vingo-Agent-Key`), để backend ghi `via_agent` |
+   | `OPENAI_API_KEY` | Key cho model chính `openai:gpt-6-luna` |
+   | `DEEPSEEK_API_KEY` | Key cho model dự phòng `deepseek:deepseek-flash`; để trống thì chỉ dùng model chính |
+   | `DATABASE_URL` | Mặc định trỏ Postgres local, role `vingo_agent` |
+
+   Các biến còn lại (giới hạn turn, kill switch `AGENT_DISABLED_TOOLS`) có giá trị mặc định, xem `.env.example`.
+
+2. Tạo role `vingo_agent` trên Postgres của backend (một lần), chạy bằng tài khoản chủ DB:
+
+   ```sql
+   CREATE ROLE vingo_agent LOGIN PASSWORD 'vingo_agent';
+   CREATE SCHEMA IF NOT EXISTS agent AUTHORIZATION vingo_agent;
+   REVOKE ALL ON SCHEMA public FROM vingo_agent;
+   ```
+
+   Role này chỉ có quyền trên schema `agent`.
+
+3. Chạy migration và khởi động:
+
+   ```bash
+   uv run alembic upgrade head
+   uv run uvicorn vingo_agent.api.app:app --host 127.0.0.1 --port 8000
+   ```
+
+   Kiểm tra: `curl localhost:8000/health` trả `{"status":"ok"}`.
+
+## API nội bộ
+
+Mọi route dưới `/internal/v1` yêu cầu header `X-Agent-Service-Key`, `X-Vingo-User-Id`, `X-Vingo-Role` và `Authorization: Bearer <session token>`, đều do backend gắn.
+
+| Route | Việc |
+|---|---|
+| `POST /conversations` | Tạo hội thoại |
+| `GET /conversations/{id}` | Lịch sử và đề xuất đang chờ |
+| `POST /conversations/{id}/messages` | Gửi tin, nhận SSE |
+| `POST /actions/{id}/confirm` | Xác nhận bằng nút, nhận SSE |
+| `POST /actions/{id}/reject` | Từ chối đề xuất |
+| `GET /turns/{id}` | Lấy lại kết quả turn khi SSE đứt |
+
+Body, sự kiện SSE và payload block: thiết kế mục 3.3 và 7.1, kiểu Python ở `src/vingo_agent/schemas/`.
 
 ## Kiểm tra
 
 ```bash
-uv run ruff check .
+uv run ruff check . && uv run ruff format --check .
 uv run pytest tests/unit
-uv run pytest tests/integration                 # cần Docker
-uv run python scripts/sync_contract.py          # operationId khớp ../vingo-backend/contracts/vingo-openapi.yaml
+uv run pytest tests/integration          # cần Docker, kéo image postgres:18 lần đầu
+uv run python scripts/sync_contract.py   # 30 operationId agent dùng khớp ../vingo-backend/contracts/vingo-openapi.yaml
 ```
 
 ## Cấu trúc
 
+Cây thư mục và trách nhiệm từng file: thiết kế mục 10.
+
 | Thư mục | Trách nhiệm |
 |---|---|
-| `api/` | Route `/internal/v1`, auth từ backend, sự kiện SSE |
-| `agents/` | Registry tool theo role, dựng PydanticAI Agent (model chính + dự phòng), chạy turn |
-| `prompts/` | System prompt Buyer/Admin (copy từ thiết kế mục 3) |
-| `tools/` | 32 tool: đọc, đề xuất, quyết định; lọc kết quả; dựng block |
-| `guardrails/` | G2–G10: input, tool, kết quả, câu trả lời, giới hạn |
-| `context/` | Dựng context, compact |
-| `actions/` | Đề xuất, xác nhận, thực thi, tra khi không rõ kết quả |
-| `clients/` | Gọi backend (danh sách operation cố định) |
-| `persistence/` | Bảng schema `agent`, truy vấn |
-| `schemas/` | Mã lỗi, block, request/response API |
-| `observability/` | Log JSON (allowlist field), trace |
-| `evals/` | Seed + 73 case từ thiết kế mục 8 |
+| `src/vingo_agent/api/` | Route, auth từ backend, sự kiện SSE |
+| `src/vingo_agent/agents/` | Tool theo role, dựng agent (model chính + dự phòng), chạy turn |
+| `src/vingo_agent/tools/` | 32 tool (đọc, đề xuất, quyết định), lọc kết quả, dựng block |
+| `src/vingo_agent/actions/` | Đề xuất, xác nhận, thực thi, tra khi không rõ kết quả |
+| `src/vingo_agent/guardrails/` | Kiểm input, tool, kết quả, câu trả lời, giới hạn |
+| `src/vingo_agent/context/` | Dựng context, compact |
+| `src/vingo_agent/clients/` | Gọi backend |
+| `src/vingo_agent/persistence/` | Schema `agent` |
+| `migrations/` | Alembic |
+| `evals/` | Seed và 73 case đánh giá (thiết kế mục 8) |
+
+## Đóng góp
+
+Quy tắc code, bất biến an toàn và checklist thêm tool: [CLAUDE.md](CLAUDE.md). Commit message viết tiếng Việt.
