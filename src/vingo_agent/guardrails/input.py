@@ -4,11 +4,14 @@ import re
 import unicodedata
 from urllib.parse import parse_qs, urlsplit
 
+from vingo_agent.observability.logging import denied
+
 REDACTED = "[đã ẩn]"
 
 
 class InputRejected(Exception):
     def __init__(self, status_code: int, code: str) -> None:
+        denied(code)
         super().__init__(code)
         self.status_code = status_code
         self.code = code
@@ -39,5 +42,10 @@ def redact(text: str) -> str:
     text = re.sub(r"https?://[^\s<>]+", _url, text, flags=re.I)
     text = re.sub(r"\bBearer\s+[^\s,;]+", REDACTED, text, flags=re.I)
     text = re.sub(r"\beyJ[\w-]*\.[\w-]+\.[\w-]+", REDACTED, text)
-    text = re.sub(r"((?:\bOTP\b|\bmã\b)[^\d\n]{0,30})\d{6}(?!\d)", lambda m: m[1] + REDACTED, text, flags=re.I)
+    text = re.sub(
+        r"((?:\bOTP\b|\bmã\b(?!\s+(?:đơn|vé|sự kiện)\b))[^\d\n]{0,30})\d{6}(?!\d)",
+        lambda m: m[1] + REDACTED,
+        text,
+        flags=re.I,
+    )
     return re.sub(r"(?<!\w)(?:\d[ -]?){12,18}\d(?!\w)", _card, text)

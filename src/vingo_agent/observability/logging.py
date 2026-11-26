@@ -48,4 +48,9 @@ def configure_logging() -> None:
 
 def log_event(logger: logging.Logger, event: str, **fields: object) -> None:
     """Ghi một sự kiện; field ngoài ALLOWED_FIELDS bị bỏ."""
-    logger.info(event, extra={"fields": {"event": event, **fields}})
+    logger.info(event, extra={"fields": {"event": event, **{k: v for k, v in fields.items() if k in ALLOWED_FIELDS}}})
+
+
+def denied(code: str) -> None:
+    """Ghi mã chặn an toàn, không nhận dữ liệu thô."""
+    log_event(logging.getLogger(__name__), "guardrail.denied", outcome="DENIED", error_code=code)
