@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     max_model_calls: int = 20
     max_tool_calls: int = 40
     max_input_chars: int = 4000
+    default_chars_per_token: float = Field(default=2.5, gt=0, allow_inf_nan=False)
     compact_ratio: float = Field(default=0.8, gt=0, lt=1)
     context_window_tokens: int = Field(default=128000, gt=0)
     output_reserved_tokens: int = Field(default=8192, ge=0)

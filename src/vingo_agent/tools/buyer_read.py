@@ -55,7 +55,7 @@ async def _read(
                 )
             raise
         observed_at = datetime.now(UTC)
-        data, truncated = projections.project(operation, raw, role=role, scope=ids, row=row)
+        data, truncated = projections.project(operation, raw, role=role, requested=ids, row=row)
         for kind in records:
             items = data[collection] if collection else [data]
             field = f"{kind.lower()}_id"

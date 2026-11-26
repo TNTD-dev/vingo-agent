@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import Depends, Header, HTTPException, status
 
 from vingo_agent.config import Settings, get_settings
+from vingo_agent.observability.logging import denied
 from vingo_agent.schemas.chat import Role
 
 
@@ -37,13 +38,21 @@ def get_principal(
         or not service_key
         or not hmac.compare_digest(service_key.encode(), settings.agent_service_key.encode())
     ):
+        denied("UNAUTHORIZED")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "UNAUTHORIZED")
-    if not authorization or not authorization.startswith("Bearer ") or not user_id:
+    if (
+        not authorization
+        or not authorization.startswith("Bearer ")
+        or not user_id
+        or not authorization.removeprefix("Bearer ").strip()
+    ):
+        denied("UNAUTHORIZED")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "UNAUTHORIZED")
     try:
         parsed_user = UUID(user_id)
         parsed_role = Role(role or "")
     except ValueError as exc:  # role lạ → từ chối
+        denied("FORBIDDEN")
         raise HTTPException(status.HTTP_403_FORBIDDEN, "FORBIDDEN") from exc
     return Principal(parsed_user, parsed_role, authorization.removeprefix("Bearer "))
 

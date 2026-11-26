@@ -94,3 +94,14 @@ async def test_read_mapsTimeoutToRetryableError():
         assert exc.value.retryable
     finally:
         await client.aclose()
+
+
+@respx.mock
+async def test_read_unknownErrorCode_doesNotLeakBackendText():
+    respx.get("http://backend/events").respond(400, json={"code": "SECRET_CANARY"})
+    client = BackendClient(Settings(backend_url="http://backend"), "token")
+    try:
+        with pytest.raises(ToolError, match="INVALID_TOOL_RESULT"):
+            await client.read("searchEvents")
+    finally:
+        await client.aclose()

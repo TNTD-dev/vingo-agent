@@ -30,35 +30,62 @@ def _string_numbers(items: list[dict]) -> list[dict]:
     return [item | {"number": str(item["number"])} if item.get("number") is not None else item for item in items]
 
 
+def _buyer_block(operation: str, kind: str, data: dict[str, Any]) -> BaseModel:
+    """Block Buyer dựng từ data đã lọc ở projections (_BUYER_MODELS)."""
+    match kind:
+        case "EventList":
+            return schema.EventList(items=data["items"])
+        case "ShowtimeList":
+            return schema.ShowtimeList(items=data["items"])
+        case "ZoneAvailability":
+            priced_zones = [zone for zone in data["zones"] if zone["price"] is not None]
+            return schema.ZoneAvailability(showtime_id=data["showtime_id"], zones=priced_zones)
+        case "SeatMap":
+            seats = _string_numbers(data["seats"])
+            if operation == "suggestSeats":
+                seats = [seat | {"price": data["unit_price"]} for seat in seats]
+            count = data["seats_left"] if operation == "suggestSeats" else data["available_count"]
+            return schema.SeatMap(
+                showtime_id=data["showtime_id"], zone_id=data["zone_id"], available_count=count, seats=seats
+            )
+        case "OrderSummary":
+            return schema.OrderSummary.model_validate(data | {"items": _string_numbers(data["items"])})
+        case "PaymentStatus":
+            return schema.PaymentStatus.model_validate(data)
+        case "TicketList":
+            return schema.TicketList(items=_string_numbers(data["items"]))
+        case _:
+            raise NotImplementedError
+
+
+def _generic_block(operation: str, kind: str, data: dict[str, Any], role: str) -> BaseModel:
+    payload = dict(data)
+    if kind == "SeatMap" and role == "BUYER":
+        payload["seats"] = [{k: v for k, v in seat.items() if k != "status"} for seat in payload.get("seats", [])]
+    if kind == "AdminTable":
+        table_kind = {
+            "listVenues": "VENUES",
+            "listSeatLayouts": "LAYOUTS",
+            "listAdminEvents": "EVENTS",
+            "adminListTickets": "TICKETS",
+        }[operation]
+        items = payload.get("items", [])
+        columns = list(items[0]) if items else []
+        payload = {"kind": table_kind, "columns": columns, "rows": [[row.get(key) for key in columns] for row in items]}
+    if kind == "StatCards" and "from" in payload:
+        payload["from_"] = payload.pop("from")
+    return getattr(schema, kind).model_validate(payload)
+
+
 def build_block(operation: str, data: dict[str, Any], *, role: str) -> BaseModel | None:
-    if role != "BUYER":
-        raise NotImplementedError
+    kind = BLOCK_FOR_OPERATION.get(operation)
+    if kind is None:
+        return None
+    if kind == "PaymentStatus" and data.get("status") == "NONE":
+        return None
     try:
-        match BLOCK_FOR_OPERATION.get(operation):
-            case "EventList":
-                return schema.EventList(items=data["items"])
-            case "ShowtimeList":
-                return schema.ShowtimeList(items=data["items"])
-            case "ZoneAvailability":
-                priced_zones = [zone for zone in data["zones"] if zone["price"] is not None]
-                return schema.ZoneAvailability(showtime_id=data["showtime_id"], zones=priced_zones)
-            case "SeatMap":
-                seats = _string_numbers(data["seats"])
-                if operation == "suggestSeats":
-                    seats = [seat | {"price": data["unit_price"]} for seat in seats]
-                count = data["seats_left"] if operation == "suggestSeats" else data["available_count"]
-                return schema.SeatMap(
-                    showtime_id=data["showtime_id"], zone_id=data["zone_id"], available_count=count, seats=seats
-                )
-            case "OrderSummary":
-                return schema.OrderSummary.model_validate(data | {"items": _string_numbers(data["items"])})
-            case "PaymentStatus":
-                return None if data["status"] == "NONE" else schema.PaymentStatus.model_validate(data)
-            case "TicketList":
-                return schema.TicketList(items=_string_numbers(data["items"]))
-            case None:
-                return None
-            case _:
-                raise NotImplementedError
+        if role == "BUYER":
+            return _buyer_block(operation, kind, data)
+        return _generic_block(operation, kind, data, role)
     except ValidationError:
         raise ToolError("INVALID_TOOL_RESULT") from None

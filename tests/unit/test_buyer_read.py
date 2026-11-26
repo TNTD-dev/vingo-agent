@@ -13,7 +13,7 @@ from vingo_agent.config import Settings
 from vingo_agent.schemas import blocks
 from vingo_agent.schemas.chat import Role
 from vingo_agent.tools import base, buyer_read, projections
-from vingo_agent.tools.base import TurnDeps
+from vingo_agent.tools.base import ToolError, TurnDeps
 
 URL = "http://backend/api/v1"
 EVENT, SHOW, ZONE, SEAT, ORDER, TICKET = (UUID(int=i) for i in range(1, 7))
@@ -616,9 +616,10 @@ async def test_seatmapAndSuggestions_replaceSameBlockWithoutDiscardingEventList(
     assert [item.number for item in ctx.deps.blocks[1].seats] == ["5", "6"]
 
 
-def test_projection_leavesAdminUnimplemented():
-    with pytest.raises(NotImplementedError):
+def test_projection_rejectsAdminOperationWithoutSpec():
+    with pytest.raises(ToolError) as error:
         projections.project("getSeatmap", seatmap([]), role="ADMIN")
+    assert error.value.code == "INVALID_TOOL_RESULT"
 
 
 async def test_suggestSeats_acceptsEmptyGroupAndNullPrices(ctx, respx_mock):

@@ -1,10 +1,12 @@
 """Request/response của API nội bộ /internal/v1 (V2.3 mục 7.1). Backend module `chat` proxy 1-1 sang đây."""
 
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+WireUUID = Annotated[UUID, BeforeValidator(lambda value: UUID(value) if isinstance(value, str) else value)]
 
 
 class Role(StrEnum):
@@ -26,20 +28,22 @@ class SelectionType(StrEnum):
 
 
 class Selection(Strict):
-    type: SelectionType
-    ids: list[UUID] = Field(min_length=1, max_length=200)
+    type: Annotated[
+        SelectionType, BeforeValidator(lambda value: SelectionType(value) if isinstance(value, str) else value)
+    ]
+    ids: list[WireUUID] = Field(min_length=1, max_length=200)
 
 
 class VisibleAction(Strict):
     """Thẻ ConfirmAction đang hiện trên web; điều kiện để confirm/reject bằng tin nhắn (V2.3 mục 4.5)."""
 
-    action_id: UUID
+    action_id: WireUUID
     version: int = Field(ge=1)
 
 
 class SendMessageRequest(Strict):
-    command_id: UUID
-    text: str = Field(min_length=1)
+    command_id: WireUUID
+    text: str
     selection: Selection | None = None
     visible_action: VisibleAction | None = None
 
@@ -53,18 +57,18 @@ class Buyer(Strict):
 
 
 class ConfirmRequest(Strict):
-    command_id: UUID
+    command_id: WireUUID
     version: int = Field(ge=1)
     buyer: Buyer | None = None
 
 
 class RejectRequest(Strict):
-    command_id: UUID
+    command_id: WireUUID
     version: int = Field(ge=1)
 
 
 class CreateConversationResponse(BaseModel):
-    conversation_id: UUID
+    conversation_id: WireUUID
     role: Role
 
 
@@ -76,14 +80,14 @@ class TurnState(StrEnum):
 
 
 class TurnView(BaseModel):
-    turn_id: UUID
+    turn_id: WireUUID
     state: TurnState
     text: str | None = None
     blocks: list[dict[str, Any]] = []
 
 
 class ConversationView(BaseModel):
-    conversation_id: UUID
+    conversation_id: WireUUID
     role: Role
     messages: list[dict[str, Any]]
     pending_action: dict[str, Any] | None = None

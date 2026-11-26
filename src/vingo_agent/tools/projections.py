@@ -1,7 +1,15 @@
-"""G7: lọc kết quả backend về đúng field cho phép (V2.3 bảng mục 4.2, 4.3).
+"""G7: lọc kết quả backend về đúng field cho phép (V2.3 bảng mục 4.2, 4.3), trước Ref/block/envelope.
+
+Hai cách khai báo, cùng chạy qua bound_result (giới hạn byte):
+- Buyer: model pydantic trong file này (_BUYER_MODELS, getSeatmap, getMe) vì cần đổi tên field, đọc field
+  lồng nhau, tính field mới và lọc ghế; FieldSpec chưa làm được các việc này.
+- Operation khác: khai báo SPECS[operation] = {"items": FieldSpec(list, item=FieldSpec(dict,
+  fields={"event_id": FieldSpec(str), "status": FieldSpec(str, enum=("DRAFT",))}))}.
+  Dùng match="event_id" và project(..., requested={"event_id": id}) để kiểm ID đã hỏi. Field tùy chọn dùng
+  required=False.
 
 Thiếu field bắt buộc hoặc enum lạ → ToolError(INVALID_TOOL_RESULT). Field lạ bị bỏ.
-Không bao giờ để lọt: qr_token, payment_url, email, phone, buyer_*.
+Không bao giờ để lọt: qr_token, payment_url, email, phone, buyer_*, svg.
 """
 
 from typing import Annotated, Any, Literal
@@ -23,11 +31,15 @@ from pydantic import (
     computed_field,
 )
 
+from vingo_agent.guardrails.result import FieldSpec, bound_result, validate_object
 from vingo_agent.tools.base import ToolError
 
-FORBIDDEN_FIELDS = frozenset({"qr_token", "payment_url", "email", "phone", "buyer_name", "buyer_email", "buyer_phone"})
+FORBIDDEN_FIELDS = frozenset(
+    {"qr_token", "payment_url", "email", "phone", "buyer_name", "buyer_email", "buyer_phone", "svg"}
+)
 SEATMAP_MAX_SEATS = 60
 MAX_TEXT_LENGTH = 2000
+SPECS: dict[str, dict[str, FieldSpec]] = {}
 
 _AWARE_TIME = TypeAdapter(AwareDatetime)
 
@@ -255,22 +267,34 @@ _BUYER_MODELS = {
 
 
 def project(
-    operation: str, raw: dict[str, Any], *, role: str, scope: dict[str, UUID] | None = None, row: str | None = None
+    operation: str,
+    raw: dict[str, Any],
+    *,
+    role: str,
+    requested: dict[str, Any] | None = None,
+    row: str | None = None,
 ) -> tuple[dict[str, Any], bool]:
-    """Lọc theo allowlist; scope là các Ref đã kiểm để đối chiếu kết quả theo ID."""
-    if role != "BUYER":
-        raise NotImplementedError
-    scope = scope or {}
+    """Dựng object mới, kiểm schema và ID đã hỏi (requested) rồi cắt list theo giới hạn byte."""
+    requested = requested or {}
+    if role == "BUYER" and (operation in _BUYER_MODELS or operation in ("getSeatmap", "getMe")):
+        data, truncated = _project_buyer(operation, raw, requested, row)
+        data, bounded = bound_result(data)
+        return data, truncated or bounded
+    if operation not in SPECS:
+        raise ToolError("INVALID_TOOL_RESULT")
+    return bound_result(validate_object(raw, SPECS[operation], requested))
+
+
+def _project_buyer(
+    operation: str, raw: dict[str, Any], scope: dict[str, Any], row: str | None
+) -> tuple[dict[str, Any], bool]:
     try:
         if operation == "getSeatmap":
             return _seatmap(raw, scope, row)
         if operation == "getMe":
             profile = _Profile.model_validate(raw)
             return {"has_full_name": bool((profile.full_name or "").strip()), "has_phone": bool(profile.phone)}, False
-        model = _BUYER_MODELS.get(operation)
-        if model is None:
-            raise NotImplementedError
-        view = model.model_validate(raw)
+        view = _BUYER_MODELS[operation].model_validate(raw)
         for field, value in scope.items():
             if field in type(view).model_fields and getattr(view, field) != value:
                 raise ToolError("INVALID_TOOL_RESULT")

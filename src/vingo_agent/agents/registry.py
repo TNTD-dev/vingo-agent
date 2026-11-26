@@ -1,4 +1,4 @@
-"""Trước khi lọc AGENT_DISABLED_TOOLS, Buyer có 17 tool (11 đọc), Admin có 18. Hai role có 32 tên riêng biệt."""
+"""Trước khi lọc AGENT_DISABLED_TOOLS, Buyer có 17 tool (11 đọc), Admin có 19. Hai role có 33 tên riêng biệt."""
 
 from collections.abc import Callable
 
