@@ -18,10 +18,11 @@ ResourceType = Literal["EVENT", "SHOWTIME", "ZONE", "SEAT", "ORDER", "TICKET", "
 class ToolError(Exception):
     """Lỗi trả về cho model dưới dạng envelope `ok=false`, không phải exception lộ ra ngoài."""
 
-    def __init__(self, code: str, retryable: bool = False) -> None:
+    def __init__(self, code: str, retryable: bool = False, *, http_status: int | None = None) -> None:
         super().__init__(code)
         self.code = code
         self.retryable = retryable
+        self.http_status = http_status
 
 
 @dataclass

@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     lease_s: float = 150  # lease của turn > deadline để không bị turn khác chiếm giữa chừng
 
     # Kill switch (V2.3 mục 9): tool trong danh sách không được đăng ký với model.
-    agent_disabled_tools: Annotated[frozenset[str], NoDecode] = frozenset()
+    agent_disabled_tools: Annotated[frozenset[str], NoDecode] = frozenset({"suggest_seats"})
     log_level: str = "INFO"
 
     @field_validator("agent_disabled_tools", mode="before")

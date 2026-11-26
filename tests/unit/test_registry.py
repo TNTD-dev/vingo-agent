@@ -1,11 +1,16 @@
+from pydantic_ai import Tool
+
 from vingo_agent.agents.registry import tools_for
 from vingo_agent.config import Settings
 from vingo_agent.schemas.chat import Role
+from vingo_agent.tools.buyer_read import BUYER_READ_TOOLS
 
 
 def test_buyer_has17Tools_withoutAdminTools():
     tools = tools_for(Role.BUYER)
     assert len(tools) == 17
+    assert len(BUYER_READ_TOOLS) == 11
+    assert "suggest_seats" in tools and "get_ticket" not in tools
     assert not any(name.startswith(("get_admin", "admin_", "propose_create_event")) for name in tools)
 
 
@@ -16,7 +21,26 @@ def test_admin_has18Tools_withSharedSeatmapName():
 
 
 def test_totalDistinctToolNames_is32():
-    assert len(set(tools_for(Role.BUYER)) | set(tools_for(Role.ADMIN))) == 32
+    buyer, admin = tools_for(Role.BUYER).keys(), tools_for(Role.ADMIN).keys()
+    assert buyer & admin == {"get_seatmap", "confirm_pending_action", "reject_pending_action"}
+    assert len(buyer | admin) == 32
+
+
+def test_suggestSeats_isDisabledByDefault(monkeypatch):
+    monkeypatch.delenv("AGENT_DISABLED_TOOLS", raising=False)
+    tools = tools_for(Role.BUYER, Settings(_env_file=None).agent_disabled_tools)
+    assert "suggest_seats" not in tools
+    assert len(tools) == 16
+
+
+def test_buyerSearchAndSeatSchemas_matchModelInputs():
+    tools = tools_for(Role.BUYER)
+    search = Tool(tools["search_events"]).tool_def.parameters_json_schema["properties"]
+    assert set(search) == {"q", "category", "city", "from", "to", "price_min", "price_max", "sort", "cursor", "limit"}
+    seats = Tool(tools["suggest_seats"]).tool_def.parameters_json_schema
+    assert set(seats["required"]) == {"showtime_id", "zone_id", "quantity"}
+    quantity = seats["properties"]["quantity"]
+    assert (quantity["minimum"], quantity["maximum"]) == (1, 10)
 
 
 def test_disabledTools_areNotRegistered(monkeypatch):
