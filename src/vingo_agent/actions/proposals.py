@@ -18,6 +18,7 @@ class Operation(StrEnum):
     BLOCK_SEATS = "BLOCK_SEATS"
     UNBLOCK_SEATS = "UNBLOCK_SEATS"
     ADMIN_RESEND_TICKET = "ADMIN_RESEND_TICKET"
+    CREATE_VENUE = "CREATE_VENUE"
 
 
 # Operation → operationId backend thực thi.
@@ -32,6 +33,7 @@ BACKEND_OPERATION: dict[Operation, str] = {
     Operation.BLOCK_SEATS: "blockSeats",
     Operation.UNBLOCK_SEATS: "unblockSeats",
     Operation.ADMIN_RESEND_TICKET: "adminResendTicket",
+    Operation.CREATE_VENUE: "createVenue",
 }
 
 NEEDS_BUYER_FORM = frozenset({Operation.CREATE_PAYMENT})
