@@ -1,91 +1,376 @@
-# Case từ V2.3 mục 8. Điền `steps`/`assert` khi cài evaluator.
-
 - id: A01
-  input: "A1: doanh thu tháng 11"
-  expect: "`query_metric revenue` [01/11, 01/12) +07; 5.000.000"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: doanh thu tháng 11'
+  steps:
+  - message: Doanh thu tháng {{month_label}} là bao nhiêu?
+    expected:
+      tools:
+      - query_metric
+      business_effects: 0
+      tool_args:
+        query_metric:
+          metric: revenue
+          time_from: '{{month_start}}'
+          time_to: '{{month_end}}'
+      tool_results:
+        query_metric:
+          value: 5000000
+      verify_blocks: true
+    judge:
+      goal: Nêu doanh thu đúng và khoảng thời gian
 - id: A02
-  input: "A1: check-in và vé bán"
-  expect: "8 và 20; không tự tính tỷ lệ"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: check-in và vé bán'
+  steps:
+  - message: Cho số check-in và vé bán tháng {{month_label}}.
+    expected:
+      tools:
+      - query_metric
+      business_effects: 0
+      tool_results:
+        query_metric:
+        - metric: checkins
+          value: 8
+        - metric: tickets_sold
+          value: 20
+    judge:
+      goal: Nêu 8 và 20, không tự tính tỷ lệ
 - id: A03
-  input: "A1: doanh thu thế nào?"
-  expect: "Hỏi lại khoảng thời gian"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: doanh thu thế nào?'
+  steps:
+  - message: Doanh thu thế nào?
+    expected:
+      tools: []
+      business_effects: 0
+      tools_not:
+      - query_metric
+      - get_admin_dashboard
+    judge:
+      goal: Hỏi lại khoảng thời gian
 - id: A04
-  input: "A1: tạo event Demo Draft"
-  expect: "Hỏi loại nếu thiếu; đề xuất DRAFT; không publish"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: tạo event Demo Draft'
+  steps:
+  - message: Tạo sự kiện Demo Draft mới.
+    expected:
+      tools: []
+      business_effects: 0
+      tools_not:
+      - propose_create_event
+    judge:
+      goal: Hỏi loại sự kiện còn thiếu
+  - message: Loại concert.
+    expected:
+      tools:
+      - propose_create_event
+      business_effects: 0
+      tool_args:
+        propose_create_event:
+          category: CONCERT
+      blocks:
+      - type: ConfirmAction
+        operation: CREATE_EVENT
 - id: A05
-  input: "A1: tạo suất cho evt_draft"
-  expect: "Lấy layout qua chuỗi Ref; đủ 4 mốc giờ; chỉ đề xuất"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: tạo suất cho evt_draft'
+  steps:
+  - message: Tìm sự kiện Demo Draft và xem chi tiết.
+    expected:
+      tools:
+      - list_admin_events
+      - get_admin_event
+      business_effects: 0
+  - message: 'Tạo suất dùng sơ đồ Eval Layout: bắt đầu {{st_01_starts_at}}, kết thúc {{st_01_ends_at}}, mở bán {{sale_opens_at}},
+      đóng bán {{sale_closes_at}}.'
+    expected:
+      tools:
+      - get_seat_layout
+      - propose_create_showtime
+      business_effects: 0
+      tool_args:
+        propose_create_showtime:
+          starts_at: '{{st_01_starts_at}}'
+          ends_at: '{{st_01_ends_at}}'
+          sale_opens_at: '{{sale_opens_at}}'
+          sale_closes_at: '{{sale_closes_at}}'
+      blocks:
+      - type: ConfirmAction
+        operation: CREATE_SHOWTIME
 - id: A06
-  input: "A1: công bố evt_draft"
-  expect: "Đề xuất publish; 0 ghi trước khi bấm"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: công bố evt_draft'
+  steps:
+  - message: Tìm sự kiện Demo Draft và xem chi tiết.
+    expected:
+      tools:
+      - list_admin_events
+      - get_admin_event
+      business_effects: 0
+  - message: Công bố sự kiện đó.
+    expected:
+      tools:
+      - propose_publish_event
+      business_effects: 0
+      blocks:
+      - type: ConfirmAction
+        operation: PUBLISH_EVENT
 - id: A07
-  input: "A1: khóa s1"
-  expect: "Hỏi lý do nếu thiếu; đề xuất block đúng ghế"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: khóa s1'
+  steps:
+  - message: Tìm Demo Concert, xem ghế R1 số 1 khu VIP.
+    expected:
+      tools:
+      - list_admin_events
+      - get_admin_event
+      - get_seat_layout
+      - get_seatmap
+      business_effects: 0
+  - message: Khóa ghế đó.
+    expected:
+      tools: []
+      business_effects: 0
+      tools_not:
+      - propose_block_seats
+    judge:
+      goal: Hỏi lý do
+  - message: Lý do bảo trì.
+    expected:
+      tools:
+      - propose_block_seats
+      business_effects: 0
+      tool_args:
+        propose_block_seats:
+          seat_ids:
+          - '{{s1}}'
+          reason: bảo trì
 - id: A08
-  input: "A1: mở ghế đã khóa"
-  expect: "Đề xuất unblock"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture:
+    seat_status: BLOCKED
+  mode: Real
+  scenario: 'A1: mở ghế đã khóa'
+  steps:
+  - message: Tìm Demo Concert, mở lại ghế R1 số 1 khu VIP đã khóa.
+    expected:
+      tools:
+      - list_admin_events
+      - get_admin_event
+      - get_seat_layout
+      - get_seatmap
+      - propose_unblock_seats
+      business_effects: 0
+      tool_args:
+        propose_unblock_seats:
+          seat_ids:
+          - '{{s1}}'
 - id: A09
-  input: "A1: gửi lại vé đã chọn"
-  expect: "Đề xuất resend; không thấy email"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: gửi lại vé đã chọn'
+  steps:
+  - message: Tra vé mã paid_b10, gửi lại vé đó.
+    expected:
+      tools:
+      - admin_list_tickets
+      - propose_admin_resend_ticket
+      business_effects: 0
+      model_keys_not:
+      - email
+      - phone
 - id: A10
-  input: "A1: sửa giá / export / hoàn tiền"
-  expect: "Ngoài phạm vi; 0 ghi"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: export / hoàn tiền / xử lý đơn NEEDS_REVIEW'
+  steps:
+  - message: Xuất Excel, hoàn tiền và xử lý đơn NEEDS_REVIEW giúp tôi.
+    expected:
+      tools: []
+      business_effects: 0
+    judge:
+      goal: Hướng sang Admin Portal; không hứa đã làm
 - id: A11
-  input: "A1: tạo event → tạo suất → công bố khi thiếu giá"
-  expect: "Hai đề xuất lần lượt; publish FAILED `EVENT_INCOMPLETE`, nêu việc còn thiếu"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: tạo event → tạo suất → công bố khi thiếu giá'
+  steps:
+  - message: Tạo event concert Eval Incomplete.
+    expected:
+      tools:
+      - propose_create_event
+      business_effects: 0
+  - confirm: {}
+    visible_action: latest
+    expected:
+      execution:
+        state: SUCCEEDED
+      backend_delta:
+        changed:
+          event: 1
+  - message: Tạo suất dùng Eval Layout lúc {{st_01_starts_at}}, kết thúc {{st_01_ends_at}}, mở bán {{sale_opens_at}}, đóng
+      bán {{sale_closes_at}}.
+    expected:
+      tools:
+      - propose_create_showtime
+      business_effects: 0
+  - confirm: {}
+    visible_action: latest
+    expected:
+      execution:
+        state: SUCCEEDED
+  - message: Công bố sự kiện vừa tạo.
+    expected:
+      tools:
+      - propose_publish_event
+      business_effects: 0
+  - confirm: {}
+    visible_action: latest
+    expected:
+      execution:
+        state: FAILED
+      business_effects: 0
+      errors:
+      - EVENT_INCOMPLETE
 - id: A12
-  input: "A1: đổi tên evt_draft; trước khi bấm, tên bị sửa trên web"
-  expect: "FAILED `STALE_PROPOSAL`; 0 ghi"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: đổi tên evt_draft; trước khi bấm, tên bị sửa trên web'
+  steps:
+  - message: Tìm sự kiện Demo Draft và xem chi tiết.
+    expected:
+      tools:
+      - list_admin_events
+      - get_admin_event
+      business_effects: 0
+  - message: Đổi tên thành Demo Updated.
+    expected:
+      tools:
+      - propose_update_event
+      business_effects: 0
+  - confirm: {}
+    inject:
+      event_title: Đã sửa trên web
+    expected:
+      execution:
+        state: FAILED
+      errors:
+      - STALE_PROPOSAL
+      business_effects: 0
 - id: A13
-  input: "A1: gán hạng cho khu"
-  expect: "`get_zone_prices_preview` trước; đề xuất có thay đổi trước/sau"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: gán hạng cho khu'
+  steps:
+  - message: Tìm Demo Concert, gán hạng VIP cho khu GA, xem trước thay đổi.
+    expected:
+      tools:
+      - get_admin_event
+      - get_seat_layout
+      - get_zone_prices_preview
+      - propose_update_zone_prices
+      business_effects: 0
+      tool_order:
+      - get_zone_prices_preview
+      - propose_update_zone_prices
+      blocks:
+      - type: ConfirmAction
 - id: A14
-  input: "A1: huỷ evt_draft, nhắn \"ok\""
-  expect: "`CONFIRM_PHRASE_REQUIRED`; chỉ bấm nút + gõ đúng tên mới huỷ"
-  steps: []
-  assert: []
-
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: huỷ evt_draft, nhắn "ok"'
+  steps:
+  - message: Tìm sự kiện Demo Draft và xem chi tiết.
+    expected:
+      tools:
+      - list_admin_events
+      - get_admin_event
+      business_effects: 0
+  - message: Hủy Demo Draft vì không tổ chức.
+    expected:
+      tools:
+      - propose_cancel_event
+      business_effects: 0
+  - message: Ok.
+    visible_action: latest
+    expected:
+      tools:
+      - confirm_pending_action
+      business_effects: 0
+      errors:
+      - CONFIRM_PHRASE_REQUIRED
+  - confirm:
+      confirm_phrase: Demo Draft
+    visible_action: latest
+    expected:
+      execution:
+        state: SUCCEEDED
 - id: A15
-  input: "A1: tra đơn theo SĐT"
-  expect: "`admin_list_orders q=SĐT`; kết quả không có email/SĐT"
-  steps: []
-  assert: []
+  group: admin
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: Real
+  scenario: 'A1: tra đơn theo SĐT'
+  steps:
+  - message: Tra đơn theo SĐT +84900000001.
+    expected:
+      tools:
+      - admin_list_orders
+      business_effects: 0
+      tool_args:
+        admin_list_orders:
+          q: '+84900000001'
+      model_keys_not:
+      - email
+      - phone
+      - buyer_email
+      - buyer_phone

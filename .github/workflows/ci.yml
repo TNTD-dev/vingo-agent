@@ -26,10 +26,10 @@ jobs:
           uv run ruff format --check .
           uv run ruff check .
       - name: Unit test
-        run: uv run pytest tests/unit
+        run: uv run pytest tests/unit -m "not eval"
       # Testcontainers dùng Docker của máy runner (image postgres:18 được giữ lại giữa các lượt).
       - name: Integration test
-        run: uv run pytest tests/integration
+        run: uv run pytest tests/integration -m "not eval"
       # Chưa có release contract-v*; tạm đối chiếu với nhánh develop của vingo-backend.
       # Khi có tag, ghim bằng file CONTRACT_VERSION và tải asset từ release.
       - uses: actions/checkout@v4
