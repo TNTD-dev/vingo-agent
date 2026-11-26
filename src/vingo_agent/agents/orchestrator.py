@@ -34,7 +34,7 @@ from vingo_agent.context.compaction import compact_if_needed
 from vingo_agent.context.tokens import TokenEstimator, text_chars
 from vingo_agent.guardrails.input import InputRejected, check_input, redact
 from vingo_agent.guardrails.limits import usage_limits
-from vingo_agent.guardrails.output import Evidence, check_reply
+from vingo_agent.guardrails.output import LINK_WARNING, Evidence, check_reply
 from vingo_agent.observability.logging import denied, log_event
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.tools.base import ToolError, TurnDeps
@@ -188,9 +188,7 @@ async def run_turn(*, conversation_id, request, principal):
                 now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).isoformat()
 
                 async def context():
-                    return await build_context(
-                        conversation_id, system_prompt="", now_vn=now, pending_action=pending, new_message=text
-                    )
+                    return await build_context(conversation_id, now_vn=now, pending_action=pending, new_message=text)
 
                 tool_schema_size = text_chars(
                     json.dumps(
@@ -367,8 +365,12 @@ async def run_turn(*, conversation_id, request, principal):
                             responses = [m for m in run.result.new_messages() if isinstance(m, ModelResponse)]
                             if responses:
                                 model_version = responses[-1].model_name
-                for warning in check_reply(final_text, Evidence(frozenset(), frozenset(amounts))):
-                    denied("UNVERIFIED_REPLY")
+                for warning in check_reply(
+                    final_text,
+                    Evidence(frozenset(), frozenset(amounts)),
+                    allowed_link_hosts=settings.allowed_link_hosts,
+                ):
+                    denied("UNVERIFIED_LINK" if warning == LINK_WARNING else "UNVERIFIED_REPLY")
                     notice = {"level": "WARN", "text": warning}
                     notices.append(notice)
                     yield event("notice", notice)

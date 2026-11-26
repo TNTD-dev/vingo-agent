@@ -54,7 +54,7 @@ def test_limits_matchDesign():
     assert (limits.request_limit, limits.tool_calls_limit) == (20, 40)
 
 
-def test_output_warnsWithoutEvidence():
+def test_T07_output_warnsWithoutEvidence():
     assert len(check_reply("Đã giữ vé 100.000 VND", Evidence(frozenset(), frozenset()))) == 2
     assert check_reply("Đã giữ vé 100.000 VND", Evidence(frozenset({"HOLD_SEATS"}), frozenset({100000}))) == []
 
@@ -133,7 +133,7 @@ def request():
     return SendMessageRequest(command_id=uuid4(), text="OTP 123456")
 
 
-async def test_turn_streamsInOrderAndSavesRedactedText(turn_env, monkeypatch):
+async def test_T01_turn_streamsInOrderAndSavesRedactedText(turn_env, monkeypatch):
     principal, cid, tid, mocks = turn_env
 
     async def text(messages, info):
@@ -154,7 +154,7 @@ async def test_turn_streamsInOrderAndSavesRedactedText(turn_env, monkeypatch):
     assert mocks["set_model_version"].await_count == 1
 
 
-async def test_turn_rejectsBusyBeforeStream(turn_env):
+async def test_T13_turn_rejectsBusyBeforeStream(turn_env):
     principal, cid, tid, mocks = turn_env
     mocks["acquire_turn"].return_value = False
     with pytest.raises(HTTPException) as error:
@@ -244,7 +244,7 @@ async def test_fallback_handlesTransportErrors(error):
 
 
 @pytest.mark.parametrize("field", ["max_model_calls", "max_tool_calls"])
-async def test_turn_enforcesUsageLimits(turn_env, monkeypatch, field):
+async def test_T12_turn_enforcesUsageLimits(turn_env, monkeypatch, field):
     from pydantic_ai.models.function import DeltaToolCall
 
     principal, cid, tid, mocks = turn_env
@@ -304,7 +304,7 @@ async def test_turn_releasesLeaseDuringTaskCancellation(turn_env, monkeypatch):
     mocks["release_turn"].assert_awaited_once_with(cid, tid)
 
 
-async def test_turn_rejectsWrongOwnerBeforeCreatingTurn(turn_env):
+async def test_T02_turn_rejectsWrongOwnerBeforeCreatingTurn(turn_env):
     principal, cid, tid, mocks = turn_env
     mocks["get_conversation"].return_value = {"owner_id": uuid4(), "role": "BUYER"}
     with pytest.raises(HTTPException) as error:
@@ -327,7 +327,7 @@ async def test_fallback_doesNotStopOnEmptyTextBeforeFailure():
 
 
 @pytest.mark.parametrize("input_tokens,should_compact", [(40, False), (900, True)])
-async def test_turn_compactsByMeasuredTokens_insteadOfReprSize(turn_env, monkeypatch, input_tokens, should_compact):
+async def test_T12_turn_compactsByMeasuredTokens_insteadOfReprSize(turn_env, monkeypatch, input_tokens, should_compact):
     from contextlib import asynccontextmanager
 
     from pydantic_ai.messages import ModelRequest, UserPromptPart
@@ -416,3 +416,59 @@ async def test_turn_reusesPreviousRatio_withoutReusingAnchor(turn_env, monkeypat
     # Ratio = (1.000 + 2 ký tự schema "[]") / 100 token = 10,02; ước lượng (2.000 + 2) / 10,02 → 200.
     # Anchor của turn cũ đã bỏ.
     assert o.compact_if_needed.call_args.args[1] == 200
+
+
+async def test_T07_replyNoticesAndLinkDenial_followStreamAndPersist(turn_env, monkeypatch, caplog):
+    import logging
+
+    from vingo_agent.guardrails.output import LINK_WARNING
+
+    principal, cid, tid, mocks = turn_env
+
+    async def respond(messages, info):
+        yield "Đã thanh toán 999.999 VND. https://evil.xyz/pay ![QR](https://evil.xyz/qr)"
+
+    monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond))
+    with caplog.at_level(logging.INFO):
+        events = [e async for e in await o.run_turn(conversation_id=cid, request=request(), principal=principal)]
+    warnings = [e.payload for e in events if e.type == "notice"]
+    assert warnings == [
+        {"level": "WARN", "text": "Thao tác chưa được thực hiện. Vui lòng xem thẻ bên dưới."},
+        {"level": "WARN", "text": "Giá chính xác xem trên thẻ."},
+        {"level": "WARN", "text": LINK_WARNING},
+    ]
+    assert events[-1].type == "turn.completed"
+    assert max(e.seq for e in events if e.type == "text.delta") < min(e.seq for e in events if e.type == "notice")
+    persisted = mocks["transition_turn"].call_args.kwargs["final_text_and_blocks"]
+    assert persisted["notices"] == warnings
+    denied = [getattr(record, "fields", {}) for record in caplog.records if record.message == "guardrail.denied"]
+    assert [f["error_code"] for f in denied] == ["UNVERIFIED_REPLY", "UNVERIFIED_REPLY", "UNVERIFIED_LINK"]
+    assert all(f["outcome"] == "DENIED" for f in denied)
+    assert "evil.xyz" not in repr(denied)
+
+
+@pytest.mark.parametrize(
+    "text,warn",
+    [
+        ("https://vingo.example/orders", False),
+        ("https://evil.xyz/pay", True),
+        ("www.evil.xyz", True),
+        ("evil.xyz/pay", True),
+        ("![vé](https://vingo.example/qr)", True),
+    ],
+)
+async def test_T07_turnUsesConfiguredLinkHosts_andWarnsForImages(turn_env, monkeypatch, text, warn):
+    from vingo_agent.guardrails.output import LINK_WARNING
+
+    principal, cid, tid, mocks = turn_env
+    monkeypatch.setenv("ALLOWED_LINK_HOSTS", "vingo.example")
+    get_settings.cache_clear()
+
+    async def respond(messages, info):
+        yield text
+
+    monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond))
+    events = [e async for e in await o.run_turn(conversation_id=cid, request=request(), principal=principal)]
+    notices = [e.payload for e in events if e.type == "notice"]
+    assert notices == ([{"level": "WARN", "text": LINK_WARNING}] if warn else [])
+    assert events[-1].type == "turn.completed"
