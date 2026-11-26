@@ -20,6 +20,12 @@ SPECS: dict[str, dict[str, FieldSpec]] = {}
 
 def project(operation: str, raw: dict[str, Any], *, role: str, requested=None) -> tuple[dict[str, Any], bool]:
     """Dựng object mới, kiểm schema/ID rồi cắt list theo giới hạn byte."""
+    if operation in ("getAdminDashboard", "queryMetric"):
+        from vingo_agent.tools.admin_read import project_reporting
+
+        if role != "ADMIN":
+            raise ToolError("FORBIDDEN")
+        return bound_result(project_reporting(operation, raw, requested or {}))
     if operation not in SPECS:
         raise ToolError("INVALID_TOOL_RESULT")
     return bound_result(validate_object(raw, SPECS[operation], requested or {}))
