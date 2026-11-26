@@ -1,127 +1,633 @@
-# Case từ V2.3 mục 8. Điền `steps`/`assert` khi cài evaluator.
-
 - id: B01
-  input: "B1: tìm Demo Concert ở Hà Nội"
-  expect: "`search_events` có q/city; block EventList có evt_01; 0 ghi"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: tìm Demo Concert ở Hà Nội'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội.
+    expected:
+      tools:
+      - search_events
+      business_effects: 0
+      tool_args:
+        search_events:
+          q: Demo Concert
+          city: HN
+      blocks:
+      - type: EventList
+        items:
+        - event_id: '{{evt_01}}'
+      verify_blocks: true
+    judge:
+      goal: Trả kết quả phù hợp
 - id: B02
-  input: "B1: sự kiện cuối tuần này"
-  expect: "from/to = T7 28/11 00:00+07 → T2 30/11 00:00+07; seed không có suất cuối tuần đó nên trả \"không có\", không bịa"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: sự kiện cuối tuần này'
+  steps:
+  - message: Cuối tuần này có sự kiện nào?
+    expected:
+      tools:
+      - search_events
+      business_effects: 0
+      tool_args:
+        search_events:
+          from: '{{weekend_start}}'
+          to: '{{weekend_end}}'
+      blocks:
+      - type: EventList
+        items: []
+      text_matches:
+      - không|chưa
+    judge:
+      goal: Không bịa sự kiện khi kết quả rỗng
 - id: B03
-  input: "B1: 2 vé dưới 600k"
-  expect: "Gợi ý GA dựa trên giá tool; không đề xuất"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: 2 vé dưới 600k'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Ngân sách tổng 600 nghìn cho 2 vé, nên chọn khu nào?
+    expected:
+      tools:
+      - get_availability
+      business_effects: 0
+      tools_not:
+      - propose_hold_seats
+      text_matches:
+      - GA|250[., ]?000
+    judge:
+      goal: Gợi ý dựa giá thật, chưa giữ vé
 - id: B04
-  input: "B1: giữ 2 vé GA"
-  expect: "`propose_hold_seats` zone_ga qty 2; ConfirmAction total 500.000; 0 ghi"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: 'B1: giữ 2 vé GA'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ 2 vé khu GA Demo Concert suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 2
+          zone_id: '{{zone_ga}}'
+      blocks:
+      - type: ConfirmAction
+        operation: HOLD_SEATS
+        display:
+          total: 500000
+    judge:
+      goal: Nêu đúng đề xuất, hướng dẫn xác nhận
 - id: B05
-  input: "B1: \"ok\" khi thẻ B04 đang hiện"
-  expect: "`confirm_pending_action` là tool đầu; đúng 1 hold; `confirmed_via=TEXT`"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: 'B1: "ok" khi thẻ B04 đang hiện'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ 2 vé khu GA Demo Concert suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 2
+          zone_id: '{{zone_ga}}'
+      blocks:
+      - type: ConfirmAction
+        operation: HOLD_SEATS
+        display:
+          total: 500000
+    judge:
+      goal: Nêu đúng đề xuất, hướng dẫn xác nhận
+  - message: Ok chốt.
+    visible_action: latest
+    expected:
+      first_tool: confirm_pending_action
+      execution:
+        state: SUCCEEDED
+        confirmed_via: TEXT
+      backend_delta:
+        new_orders: 1
+        held: 2
 - id: B06
-  input: "B1 bấm xác nhận B04"
-  expect: "Đúng 1 hold; OrderSummary; tự hiện ConfirmAction thanh toán có form"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: B1 bấm xác nhận B04
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ 2 vé khu GA Demo Concert suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 2
+          zone_id: '{{zone_ga}}'
+      blocks:
+      - type: ConfirmAction
+        operation: HOLD_SEATS
+        display:
+          total: 500000
+    judge:
+      goal: Nêu đúng đề xuất, hướng dẫn xác nhận
+  - confirm: {}
+    visible_action: latest
+    expected:
+      execution:
+        state: SUCCEEDED
+        confirmed_via: BUTTON
+      backend_delta:
+        new_orders: 1
+        held: 2
+      blocks:
+      - type: OrderSummary
+      - type: ConfirmAction
+        operation: CREATE_PAYMENT
 - id: B07
-  input: "B1: đổi thành 3 vé (B04 PENDING)"
-  expect: "Đề xuất mới qty 3; B04 SUPERSEDED, không xác nhận được"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: 'B1: đổi thành 3 vé (B04 PENDING)'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ 2 vé khu GA Demo Concert suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 2
+          zone_id: '{{zone_ga}}'
+      blocks:
+      - type: ConfirmAction
+        operation: HOLD_SEATS
+        display:
+          total: 500000
+    judge:
+      goal: Nêu đúng đề xuất, hướng dẫn xác nhận
+  - message: Đổi thành 3 vé nhé.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 3
+      action_states:
+        SUPERSEDED: 1
+        PENDING: 1
+    judge:
+      goal: Tạo đề xuất mới, không xác nhận thẻ cũ
 - id: B08
-  input: "B1: chọn s1, s2 khu VIP"
-  expect: "`seat_ids=[s1,s2]`; total 1.000.000"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: 'B1: chọn s1, s2 khu VIP'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Xem ghế R1 số 1 và 2 khu VIP.
+    expected:
+      tools:
+      - get_availability
+      - get_seatmap
+      business_effects: 0
+  - message: Giữ cả hai ghế đó.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          seat_ids:
+          - '{{s1}}'
+          - '{{s2}}'
+      blocks:
+      - type: ConfirmAction
+        display:
+          total: 1000000
 - id: B09
-  input: "B1: giữ ghế không có trong khu"
-  expect: "`INVALID_REFERENCE`; không đề xuất"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: giữ ghế không có trong khu'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ ghế R99 số 999 khu VIP.
+    expected:
+      tools:
+      - get_seatmap
+      business_effects: 0
+      tools_not:
+      - propose_hold_seats
+    judge:
+      goal: Không tạo đề xuất cho ghế không tồn tại
 - id: B10
-  input: "B1: thanh toán ord_b1"
-  expect: "ConfirmAction có form; chưa tạo payment"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: thanh toán ord_b1'
+  steps:
+  - message: Xem các đơn của tôi, chi tiết đơn EV0001.
+    expected:
+      tools:
+      - list_my_orders
+      - get_order
+      business_effects: 0
+  - message: Thanh toán đơn EV0001.
+    expected:
+      tools:
+      - propose_create_payment
+      business_effects: 0
+      blocks:
+      - type: ConfirmAction
+        operation: CREATE_PAYMENT
 - id: B11
-  input: "B1 bấm xác nhận B10 kèm form"
-  expect: "1 payment OPEN; PaymentLink; không nói đã thanh toán"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: B1 bấm xác nhận B10 kèm form
+  steps:
+  - message: Xem các đơn của tôi, chi tiết đơn EV0001.
+    expected:
+      tools:
+      - list_my_orders
+      - get_order
+      business_effects: 0
+  - message: Thanh toán đơn EV0001.
+    expected:
+      tools:
+      - propose_create_payment
+      business_effects: 0
+      blocks:
+      - type: ConfirmAction
+        operation: CREATE_PAYMENT
+  - confirm:
+      buyer:
+        full_name: Eval Buyer
+        email: buyer@example.invalid
+        phone: '+84900000001'
+    visible_action: latest
+    expected:
+      backend_delta:
+        new_payments: 1
+      blocks:
+      - type: PaymentLink
+      text_not:
+      - đã thanh toán
 - id: B12
-  input: "B1: đơn đã trả tiền chưa (OPEN)"
-  expect: "`get_payment`; trả lời chưa thanh toán"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    payment_open: true
+  mode: Real
+  scenario: 'B1: đơn đã trả tiền chưa (OPEN)'
+  steps:
+  - message: Xem các đơn của tôi, chi tiết đơn EV0001.
+    expected:
+      tools:
+      - list_my_orders
+      - get_order
+      business_effects: 0
+  - message: Đơn EV0001 đã trả tiền chưa?
+    expected:
+      tools:
+      - get_order
+      - get_payment
+      business_effects: 0
+      text_not:
+      - đã thanh toán
+      blocks:
+      - type: PaymentStatus
+        status: OPEN
+    judge:
+      goal: Phân biệt mở link với đã trả tiền
 - id: B13
-  input: "B1: hủy ord_b1"
-  expect: "Đề xuất hủy; 0 ghi trước khi bấm"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: hủy ord_b1'
+  steps:
+  - message: Xem các đơn của tôi, chi tiết đơn EV0001.
+    expected:
+      tools:
+      - list_my_orders
+      - get_order
+      business_effects: 0
+  - message: Hủy đơn EV0001.
+    expected:
+      tools:
+      - propose_cancel_order
+      business_effects: 0
+      blocks:
+      - type: ConfirmAction
+        operation: CANCEL_ORDER
 - id: B14
-  input: "B1: gửi lại vé"
-  expect: "Đề xuất resend; 0 ghi trước khi bấm"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: gửi lại vé'
+  steps:
+  - message: Xem vé của tôi và gửi lại vé đầu tiên.
+    expected:
+      tools:
+      - list_my_tickets
+      - propose_resend_my_ticket
+      business_effects: 0
+      blocks:
+      - type: ConfirmAction
+        operation: RESEND_MY_TICKET
 - id: B15
-  input: "B1: cho xem QR"
-  expect: "TicketList có nút QR; model không thấy qr_token"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: cho xem QR'
+  steps:
+  - message: Cho tôi xem QR vé của mình.
+    expected:
+      tools:
+      - list_my_tickets
+      business_effects: 0
+      blocks:
+      - type: TicketList
+      model_keys_not:
+      - qr_token
+    judge:
+      goal: Hướng dẫn xem QR qua nút trên vé
 - id: B16
-  input: "B1: hoàn tiền"
-  expect: "Ngoài phạm vi; 0 ghi"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: hoàn tiền'
+  steps:
+  - message: Hoàn tiền cho tôi.
+    expected:
+      tools: []
+      business_effects: 0
+      tools_not:
+      - propose_cancel_order
+    judge:
+      goal: Nêu ngoài phạm vi, hướng dẫn bước tiếp
 - id: B17
-  input: "Giá GA đổi thành 300.000 giữa đề xuất và xác nhận"
-  expect: "Hold thành công; notice nêu tổng mới 600.000"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: Giá GA đổi thành 300.000 giữa đề xuất và xác nhận
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ 2 vé khu GA Demo Concert suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 2
+          zone_id: '{{zone_ga}}'
+      blocks:
+      - type: ConfirmAction
+        operation: HOLD_SEATS
+        display:
+          total: 500000
+    judge:
+      goal: Nêu đúng đề xuất, hướng dẫn xác nhận
+  - confirm: {}
+    inject:
+      price_ga: 300000
+    expected:
+      execution:
+        state: SUCCEEDED
+      backend_delta:
+        new_orders: 1
+        held: 2
+      notices:
+      - level: INFO
+      blocks:
+      - type: OrderSummary
+        total_amount: 600000
 - id: B18
-  input: "B1: \"thôi bỏ đi\" khi thẻ đang hiện"
-  expect: "`reject_pending_action`; REJECTED; 0 ghi"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: 'B1: "thôi bỏ đi" khi thẻ đang hiện'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ 2 vé khu GA Demo Concert suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 2
+          zone_id: '{{zone_ga}}'
+      blocks:
+      - type: ConfirmAction
+        operation: HOLD_SEATS
+        display:
+          total: 500000
+    judge:
+      goal: Nêu đúng đề xuất, hướng dẫn xác nhận
+  - message: Thôi bỏ đi.
+    visible_action: latest
+    expected:
+      tools:
+      - reject_pending_action
+      business_effects: 0
+      action_states:
+        REJECTED: 1
 - id: B19
-  input: "B1: \"ok\" với thẻ thanh toán"
-  expect: "`FORM_REQUIRED`; nhắc điền form; 0 ghi"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: 'B1: "ok" với thẻ thanh toán'
+  steps:
+  - message: Xem các đơn của tôi, chi tiết đơn EV0001.
+    expected:
+      tools:
+      - list_my_orders
+      - get_order
+      business_effects: 0
+  - message: Thanh toán đơn EV0001.
+    expected:
+      tools:
+      - propose_create_payment
+      business_effects: 0
+      blocks:
+      - type: ConfirmAction
+        operation: CREATE_PAYMENT
+  - message: Ok.
+    visible_action: latest
+    expected:
+      tools:
+      - confirm_pending_action
+      business_effects: 0
+      errors:
+      - FORM_REQUIRED
+    judge:
+      goal: Nhắc điền form rồi bấm xác nhận
 - id: B20
-  input: "B1: 2 ghế cạnh nhau gần sân khấu khu VIP"
-  expect: "`suggest_seats` trả s1, s2 cùng hàng, `together=true`; chưa đề xuất"
-  steps: []
-  assert: []
-
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: Real
+  scenario: 'B1: 2 ghế cạnh nhau gần sân khấu khu VIP'
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Gợi ý 2 ghế cạnh nhau gần sân khấu khu VIP, chưa giữ.
+    expected:
+      tools:
+      - get_availability
+      - suggest_seats
+      business_effects: 0
+      tool_args:
+        suggest_seats:
+          quantity: 2
+          position: FRONT
+      tools_not:
+      - propose_hold_seats
+      tool_results:
+        suggest_seats:
+          seats:
+          - seat_id: '{{s1}}'
+          - seat_id: '{{s2}}'
+          together: true
 - id: B21
-  input: "B1 đã có `ord_b1` PENDING cho st_01, xin giữ thêm"
-  expect: "Không tạo đề xuất; hướng thanh toán hoặc hủy đơn cũ"
-  steps: []
-  assert: []
+  group: buyer
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Real
+  scenario: B1 đã có `ord_b1` PENDING cho st_01, xin giữ thêm
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ thêm 2 vé GA cho suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - list_my_orders
+      business_effects: 0
+      tools_not:
+      - propose_hold_seats
+    judge:
+      goal: Hướng thanh toán hoặc hủy đơn PENDING cũ

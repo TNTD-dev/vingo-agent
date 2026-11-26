@@ -674,7 +674,7 @@ Backend và DB test thật cho giao dịch; cổng thanh toán và email dùng s
 
 ### 8.2 Fixture
 
-`evals/fixtures/seed.md`: Buyer B1, B2; Admin A1. `evt_01` Demo Concert (Hà Nội), `st_01` 2026-12-05 19:00 +07; `zone_ga` STANDING 250.000 VND còn 10; `zone_vip` SEATED, ghế `s1`, `s2` 500.000 VND/ghế. `ord_b1` PENDING của B1, `ord_b2` của B2; `tick_b1` ISSUED của B1, `tick_b2` của B2; `evt_draft` DRAFT. Tháng 11/2026 (giờ VN): revenue 5.000.000, tickets_sold 20, checkins 8. Đồng hồ giả 2026-11-25T15:30:00+07:00.
+`evals/fixtures/seed.md`: Buyer B1, B2; Admin A1. `evt_01` Demo Concert (Hà Nội), `st_01` ngày T0 + 10 ngày lúc 19:00 giờ VN; `zone_ga` STANDING 250.000 VND còn 10; `zone_vip` SEATED, ghế `s1`, `s2` 500.000 VND/ghế. `ord_b1` PENDING của B1, `ord_b2` của B2; `tick_b1` ISSUED của B1, `tick_b2` của B2; `evt_draft` DRAFT. Tháng chứa T0 (giờ VN): revenue 5.000.000, tickets_sold 20, checkins 8. T0 là thời điểm bắt đầu runner, dùng chung để render fixture và expected (`{{weekend_start}}`, `{{st_01_starts_at}}`, `{{month_start}}`…). Agent và backend đều dùng giờ thật; không thay đồng hồ. Các mốc mở/đóng bán tính tương đối từ T0. Case cần hết hạn/qua lease sửa `expires_at`/`started_at` trong DB agent, không đổi giờ backend.
 
 - ID trong case là **alias** của dữ liệu test, runner ánh xạ sang UUID thật sau khi seed. Agent vẫn phải có Ref qua bước đọc hoặc UI selection; case không được đưa UUID trực tiếp cho model.
 - Reset fixture trước mỗi case và mỗi lần lặp; setup của case tự tái tạo, không dựa vào case trước.
@@ -691,7 +691,7 @@ Mỗi file `evals/cases/<nhom>.yaml` là danh sách case; mỗi case có `id`, `
   fixture: seed
   mode: Real
   steps:
-    - message: "Giữ 2 vé khu GA suất 19h ngày 5/12"
+    - message: "Giữ 2 vé khu GA suất {{st_01_starts_at}}"
       expected:
         tools: [propose_hold_seats]
         tool_args: {quantity: 2, zone_id: zone_ga}
@@ -755,7 +755,7 @@ Mẫu số và tử số ghi rõ. `ERROR`/`BLOCKED`/chưa chạy **không tính 
 | Case | Input / điều kiện | Kỳ vọng | Chạy |
 |---|---|---|---|
 | B01 | B1: tìm Demo Concert ở Hà Nội | `search_events` có q/city; block EventList có evt_01; 0 ghi | Real |
-| B02 | B1: sự kiện cuối tuần này | from/to = T7 28/11 00:00+07 → T2 30/11 00:00+07; seed không có suất cuối tuần đó nên trả "không có", không bịa | Real |
+| B02 | B1: sự kiện cuối tuần này | from/to = `{{weekend_start}}` → `{{weekend_end}}`; seed không có suất cuối tuần đó nên trả "không có", không bịa | Real |
 | B03 | B1: 2 vé dưới 600k | Gợi ý GA dựa trên giá tool; không đề xuất | Real |
 | B04 | B1: giữ 2 vé GA | `propose_hold_seats` zone_ga qty 2; ConfirmAction total 500.000; 0 ghi | Real |
 | B05 | B1: "ok" khi thẻ B04 đang hiện | `confirm_pending_action` là tool đầu; đúng 1 hold; `confirmed_via=TEXT` | Real |
@@ -775,7 +775,7 @@ Mẫu số và tử số ghi rõ. `ERROR`/`BLOCKED`/chưa chạy **không tính 
 | B19 | B1: "ok" với thẻ thanh toán | `FORM_REQUIRED`; nhắc điền form; 0 ghi | Real |
 | B20 | B1: 2 ghế cạnh nhau gần sân khấu khu VIP | `suggest_seats` trả s1, s2 cùng hàng, `together=true`; chưa đề xuất | Real |
 | B21 | B1 đã có `ord_b1` PENDING cho st_01, xin giữ thêm | Không tạo đề xuất; hướng thanh toán hoặc hủy đơn cũ | Real |
-| A01 | A1: doanh thu tháng 11 | `query_metric revenue` [01/11, 01/12) +07; 5.000.000 | Real |
+| A01 | A1: doanh thu tháng `{{month_label}}` | `query_metric revenue` [`{{month_start}}`, `{{month_end}}`) +07; 5.000.000 | Real |
 | A02 | A1: check-in và vé bán | 8 và 20; không tự tính tỷ lệ | Real |
 | A03 | A1: doanh thu thế nào? | Hỏi lại khoảng thời gian | Real |
 | A04 | A1: tạo event Demo Draft | Hỏi loại nếu thiếu; đề xuất DRAFT; không publish | Real |
@@ -856,7 +856,7 @@ Không có X04 (IPN/callback thanh toán: test của backend), X05 (template con
 ```text
 for case in cases (lọc theo id/nhóm):
     for lần in 1..3 (Real) hoặc 1 (pytest/E2E):
-        reset fixture, cố định đồng hồ, tạo hội thoại đúng actor
+        reset fixture theo T0, giữ giờ thật, tạo hội thoại đúng actor
         for bước: chạy qua API /internal/v1 như người dùng thật → chụp text, block, trace, delta backend
                   chấm code; chấm Judge nếu có
         ghi kết quả case
