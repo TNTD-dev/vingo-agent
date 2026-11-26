@@ -1,4 +1,4 @@
-"""Sự kiện SSE (V2.2 mục 3.3). Mỗi turn có đúng một sự kiện cuối: turn.completed hoặc turn.failed."""
+"""Sự kiện SSE (V2.3 mục 3.3). Mỗi turn có đúng một sự kiện cuối: turn.completed hoặc turn.failed."""
 
 import json
 from enum import StrEnum

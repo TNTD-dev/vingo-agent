@@ -1,4 +1,4 @@
-"""7 bảng schema `agent` (V2.2 mục 6.1). Migration 0001 là nguồn của DDL; file này phải khớp."""
+"""7 bảng schema `agent` (V2.3 mục 6.1). Migration 0001 là nguồn của DDL; file này phải khớp."""
 
 from sqlalchemy import (
     BigInteger,

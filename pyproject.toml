@@ -1,7 +1,7 @@
 [project]
 name = "vingo-agent"
 version = "0.1.0"
-description = "Trợ lý chat mua vé và quản trị Vingo (thiết kế V2.2)"
+description = "Trợ lý chat mua vé và quản trị Vingo (thiết kế V2.3)"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

@@ -1,4 +1,4 @@
-"""G1 Auth (V2.2 mục 5.1): chỉ tin backend `chat`.
+"""G1 Auth (V2.3 mục 5.1): chỉ tin backend `chat`.
 
 Backend gửi X-Agent-Service-Key + danh tính dựng từ phiên (X-Vingo-User-Id, X-Vingo-Role)
 + Authorization: Bearer <session token của user>. Token chỉ dùng trong request, không lưu.

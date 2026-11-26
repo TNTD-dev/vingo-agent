@@ -1,4 +1,4 @@
-"""10 tool đề xuất (V2.2 mục 4.4): chỉ tạo pending action, không bao giờ ghi nghiệp vụ.
+"""10 tool đề xuất (V2.3 mục 4.4): chỉ tạo pending action, không bao giờ ghi nghiệp vụ.
 
 Mỗi tool: kiểm Ref + điều kiện (đọc lại backend nếu cần) → actions.proposals.create(...) → block ConfirmAction
 → trả {"status": "PROPOSED", "action_id", "expires_at"}. Tối đa một đề xuất mỗi turn.

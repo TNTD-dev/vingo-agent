@@ -1,4 +1,4 @@
-"""Tạo đề xuất (V2.2 mục 4.4): một transaction supersede PENDING cũ + insert PENDING mới."""
+"""Tạo đề xuất (V2.3 mục 4.4): một transaction supersede PENDING cũ + insert PENDING mới."""
 
 from datetime import timedelta
 from enum import StrEnum

@@ -4,7 +4,7 @@ Trợ lý chat của Vingo: giúp người mua tìm sự kiện, giữ vé, than
 
 > **Trạng thái: khung.** App chạy được, auth và validate request đã có, các route nghiệp vụ trả `501`. Tool, guardrail và luồng thực thi còn là stub (`NotImplementedError`).
 
-Thiết kế đầy đủ: [docs/VINGO_AGENT_DESIGN_V2.2.md](docs/VINGO_AGENT_DESIGN_V2.2.md).
+Thiết kế đầy đủ: [docs/VINGO_AGENT_DESIGN_V2.3.md](docs/VINGO_AGENT_DESIGN_V2.3.md).
 
 ## Kiến trúc
 
@@ -104,14 +104,14 @@ Cây thư mục và trách nhiệm từng file: thiết kế mục 10.
 |---|---|
 | `src/vingo_agent/api/` | Route, auth từ backend, sự kiện SSE |
 | `src/vingo_agent/agents/` | Tool theo role, dựng agent (model chính + dự phòng), chạy turn |
-| `src/vingo_agent/tools/` | 32 tool (đọc, đề xuất, quyết định), lọc kết quả, dựng block |
+| `src/vingo_agent/tools/` | 52 tool (đọc, đề xuất, quyết định), lọc kết quả, dựng block |
 | `src/vingo_agent/actions/` | Đề xuất, xác nhận, thực thi, tra khi không rõ kết quả |
 | `src/vingo_agent/guardrails/` | Kiểm input, tool, kết quả, câu trả lời, giới hạn |
 | `src/vingo_agent/context/` | Dựng context, compact |
 | `src/vingo_agent/clients/` | Gọi backend |
 | `src/vingo_agent/persistence/` | Schema `agent` |
 | `migrations/` | Alembic |
-| `evals/` | Seed và 73 case đánh giá (thiết kế mục 8) |
+| `evals/` | Seed và 80 case đánh giá (thiết kế mục 8) |
 
 ## Đóng góp
 

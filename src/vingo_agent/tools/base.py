@@ -1,4 +1,4 @@
-"""Phần chung cho mọi tool (V2.2 mục 4.1): deps của turn, envelope, lỗi, kiểm Ref."""
+"""Phần chung cho mọi tool (V2.3 mục 4.1): deps của turn, envelope, lỗi, kiểm Ref."""
 
 from dataclasses import dataclass, field
 from datetime import datetime

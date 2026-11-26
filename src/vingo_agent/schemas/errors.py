@@ -1,4 +1,4 @@
-"""Mã lỗi chuẩn của agent (V2.2 mục 4.1).
+"""Mã lỗi chuẩn của agent (V2.3 mục 4.1).
 
 Tool dùng nguyên mã lỗi backend; agent thêm các mã riêng. Model, web và log đều thấy đúng tập này.
 """

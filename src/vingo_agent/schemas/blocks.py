@@ -1,4 +1,4 @@
-"""Payload của 12 loại block (V2.2 mục 3.3). Block chỉ do code dựng từ kết quả tool đã lọc, model không tạo."""
+"""Payload của 12 loại block (V2.3 mục 3.3). Block chỉ do code dựng từ kết quả tool đã lọc, model không tạo."""
 
 from datetime import datetime
 from enum import StrEnum

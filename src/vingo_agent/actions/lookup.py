@@ -1,4 +1,4 @@
-"""Tra khi không rõ kết quả ghi (V2.2 mục 7, bảng tra).
+"""Tra khi không rõ kết quả ghi (V2.3 mục 7, bảng tra).
 
 Retry an toàn: HOLD_SEATS, CREATE_PAYMENT (cùng Idempotency-Key), PUBLISH_EVENT, BLOCK/UNBLOCK_SEATS.
 Đọc để tra: CANCEL_ORDER (getOrder: CANCELLED → SUCCEEDED).

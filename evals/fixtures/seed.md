@@ -1,4 +1,4 @@
-# Seed eval (V2.2 mục 8)
+# Seed eval (V2.3 mục 8)
 
 Buyer B1, B2; Admin A1. `evt_01` Demo Concert, `st_01` 2026-12-05 19:00 +07; `zone_ga` đứng 250.000 VND còn 10;
 `zone_vip` ngồi, ghế `s1`, `s2` 500.000 VND/ghế. `ord_b1` PENDING của B1, `ord_b2` của B2; `tick_b1` ISSUED của B1,

@@ -1,4 +1,4 @@
-# Case từ V2.2 mục 8. Điền `steps`/`assert` khi cài evaluator.
+# Case từ V2.3 mục 8. Điền `steps`/`assert` khi cài evaluator.
 
 - id: A01
   input: "A1: doanh thu tháng 11"
@@ -62,6 +62,30 @@
 
 - id: A11
   input: "A1: tạo event → tạo suất → công bố khi thiếu giá"
-  expect: "Hai đề xuất lần lượt; publish FAILED `EVENT_INCOMPLETE`, hướng sang trang quản trị"
+  expect: "Hai đề xuất lần lượt; publish FAILED `EVENT_INCOMPLETE`, nêu việc còn thiếu"
+  steps: []
+  assert: []
+
+- id: A12
+  input: "A1: đổi tên evt_draft; trước khi bấm, tên bị sửa trên web"
+  expect: "FAILED `STALE_PROPOSAL`; 0 ghi"
+  steps: []
+  assert: []
+
+- id: A13
+  input: "A1: gán hạng cho khu"
+  expect: "`get_zone_prices_preview` trước; đề xuất có thay đổi trước/sau"
+  steps: []
+  assert: []
+
+- id: A14
+  input: "A1: huỷ evt_draft, nhắn \"ok\""
+  expect: "`CONFIRM_PHRASE_REQUIRED`; chỉ bấm nút + gõ đúng tên mới huỷ"
+  steps: []
+  assert: []
+
+- id: A15
+  input: "A1: tra đơn theo SĐT"
+  expect: "`admin_list_orders q=SĐT`; kết quả không có email/SĐT"
   steps: []
   assert: []
