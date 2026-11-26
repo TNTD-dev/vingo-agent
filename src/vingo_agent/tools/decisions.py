@@ -27,6 +27,7 @@ async def confirm_pending_action(ctx: RunContext[TurnDeps]) -> dict:
         principal=deps.principal,
         via=ConfirmedVia.TEXT,
         backend=deps.backend,
+        notices=deps.notices,
     )
     deps.blocks.extend(blocks)
     data = {"status": outcome[0]}

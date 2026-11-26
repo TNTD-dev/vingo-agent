@@ -309,7 +309,7 @@ Chưa có metric tỷ lệ chuyển đổi trong backend; biểu đồ và xuấ
 
 | Tool | Input | Code kiểm và chụp snapshot | Thực thi bằng | Hạn đề xuất |
 |---|---|---|---|---|
-| `propose_hold_seats` | `showtime_id, zone_id, quantity, seat_ids?` | Đọc lại `getAvailability`; suất ON_SALE; khu ngồi: `len(seat_ids) == quantity`, khu đứng: không có `seat_ids`; `quantity ≤ max_tickets_per_order`; `listMyOrders(PENDING)` chưa có đơn cho suất này; snapshot giá × số lượng. Code gửi backend đúng một dạng: khu ngồi chỉ `seat_ids`, khu đứng `zone_id + quantity` | `holdSeats` `POST /showtimes/{showtime_id}/holds` (Idempotency-Key) | 5 phút |
+| `propose_hold_seats` | `showtime_id, zone_id, quantity, seat_ids?` | Đọc lại `getAvailability`; suất ON_SALE; khu ngồi: `len(seat_ids) == quantity`, khu đứng: không có `seat_ids`; khu ngồi: ghế thuộc đúng khu và còn AVAILABLE (`getSeatmap`); `listMyOrders(PENDING)` chưa có đơn còn hạn cho suất này (đơn PENDING đã quá hạn backend tự đóng khi giữ mới); snapshot giá × số lượng. Code gửi backend đúng một dạng: khu ngồi chỉ `seat_ids`, khu đứng `zone_id + quantity` | `holdSeats` `POST /showtimes/{showtime_id}/holds` (Idempotency-Key) | 5 phút |
 | `propose_create_payment` | `order_id` | Đơn PENDING, còn hạn; snapshot `total_amount` | `createPayment` `POST /orders/{order_id}/payments` (Idempotency-Key, `buyer` từ form) | Bằng hạn giữ ghế còn lại |
 | `propose_cancel_order` | `order_id` | Đơn PENDING | `cancelOrder` `POST /orders/{order_id}/cancel` | Bằng hạn giữ ghế còn lại |
 | `propose_resend_my_ticket` | `ticket_id` | Vé ISSUED | `resendMyTicket` `POST /tickets/{ticket_id}/resend` | 10 phút |
@@ -335,7 +335,7 @@ Quy tắc:
 - Mỗi turn tạo tối đa một đề xuất; tool call đề xuất thứ hai trong turn → `PROPOSAL_ALREADY_CREATED`.
 - Mỗi hội thoại có tối đa một đề xuất PENDING. Đề xuất mới thay thế (SUPERSEDED) đề xuất cũ.
 - Code ghép payload thực thi từ input đã kiểm; không nhận giá, role, URL từ model. Số lượng vé tối đa do backend kiểm (`MAX_TICKETS_EXCEEDED`).
-- Ghế đôi: backend tự giữ kèm ghế cặp, nên tổng tiền thật lấy từ đơn trả về, không từ snapshot.
+- Tổng tiền thật lấy từ đơn backend trả về, không từ snapshot (giá có thể đổi giữa lúc đề xuất và lúc xác nhận).
 - **Đề xuất sửa** (`update_*`, `propose_update_price_tiers`, `propose_update_zone_prices`): payload chứa `before` của mọi trường sắp đổi. Lúc xác nhận, code đọc lại bản hiện tại; trường nào khác `before` → FAILED `STALE_PROPOSAL`, không gửi. Backend chưa có version nên vẫn còn khoảng hở nhỏ giữa lần đọc và lần ghi; chấp nhận vì hệ thống chỉ có 1 admin.
 - **Đề xuất huỷ** (`cancel_event`, `cancel_showtime`): thẻ có `confirm_phrase` (tên sự kiện / giờ suất). Chỉ xác nhận bằng nút kèm cụm gõ lại đúng; xác nhận bằng tin nhắn trả `CONFIRM_PHRASE_REQUIRED`.
 - **Nhập sơ đồ**: file SVG tải lên qua web (mục 7.1 `POST /chat/uploads`), agent chỉ nhận `upload_id`; model không đọc nội dung SVG.

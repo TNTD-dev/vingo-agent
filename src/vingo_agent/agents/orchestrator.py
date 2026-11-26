@@ -149,6 +149,7 @@ async def run_turn(*, conversation_id, request, principal):
         seq, final_text, state, code = 0, "", "FAILED", "BACKEND_UNAVAILABLE"
         blocks, messages, amounts = {}, [{"kind": "USER", "content": {"text": text}}], set()
         notices = []
+        succeeded = set()
         model_version = None
         last_input_tokens = last_input_chars = None
 
@@ -357,15 +358,30 @@ async def run_turn(*, conversation_id, request, principal):
                                                 deps.blocks.clear()
                                             for block in deps.blocks:
                                                 data = block.model_dump(mode="json")
+                                                if (
+                                                    principal.role == "BUYER"
+                                                    and item.part.tool_name == "confirm_pending_action"
+                                                ):
+                                                    amounts.update(amounts_in(data))
+                                                    if (
+                                                        data["type"] == "ActionResult"
+                                                        and data["status"] == "SUCCEEDED"
+                                                        and data["operation"] in {"HOLD_SEATS", "CANCEL_ORDER"}
+                                                    ):
+                                                        succeeded.add(data["operation"])
                                                 payload = {"type": data.pop("type"), "payload": data}
                                                 blocks[payload["type"]] = payload
                                                 yield event("block", payload)
                                             deps.blocks.clear()
+                                            for notice in deps.notices:
+                                                notices.append(notice)
+                                                yield event("notice", notice)
+                                            deps.notices.clear()
                         if run.result:
                             responses = [m for m in run.result.new_messages() if isinstance(m, ModelResponse)]
                             if responses:
                                 model_version = responses[-1].model_name
-                for warning in check_reply(final_text, Evidence(frozenset(), frozenset(amounts))):
+                for warning in check_reply(final_text, Evidence(frozenset(succeeded), frozenset(amounts))):
                     denied("UNVERIFIED_REPLY")
                     notice = {"level": "WARN", "text": warning}
                     notices.append(notice)
