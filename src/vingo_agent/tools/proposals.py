@@ -14,8 +14,10 @@ from pydantic_ai import RunContext
 
 from vingo_agent.actions import proposals as pending
 from vingo_agent.actions.proposals import Operation
+from vingo_agent.persistence import repositories as repo
 from vingo_agent.schemas.blocks import ConfirmAction
 from vingo_agent.schemas.chat import Role
+from vingo_agent.tools.admin_read import _operations_admin, _operations_read
 from vingo_agent.tools.base import ToolError, TurnDeps, fail, ok, require_ref
 
 SeatIds = list[UUID]
@@ -224,9 +226,81 @@ async def propose_unblock_seats(ctx: RunContext[TurnDeps], showtime_id: UUID, se
     return path, body, {**path, **body}
 
 
+async def _known_ticket_code(ctx, ticket_id):
+    # Chỉ lấy mã từ kết quả adminListTickets đã lọc của chính hội thoại, không từ lời user/model.
+    if ticket_id in ctx.deps.admin_ticket_codes:
+        return ctx.deps.admin_ticket_codes[ticket_id]
+    for message in reversed(await repo.get_messages(ctx.deps.conversation_id)):
+        if message["kind"] != "TOOL_RESULT":
+            continue
+        result = message["content"].get("result", {})
+        if result.get("ok") is not True or result.get("meta", {}).get("operation") != "adminListTickets":
+            continue
+        for item in result.get("data", {}).get("items", []):
+            if item.get("ticket_id") == str(ticket_id):
+                return item["code"]
+    raise ToolError("INVALID_REFERENCE")
+
+
 async def propose_admin_resend_ticket(ctx: RunContext[TurnDeps], ticket_id: UUID) -> dict:
-    """Đề xuất gửi lại vé ISSUED tới email trên đơn. → adminResendTicket"""
-    raise NotImplementedError
+    """Đề xuất gửi lại vé ISSUED tới email đã lưu, TTL 10 phút; chỉ gửi sau xác nhận. → adminResendTicket"""
+    operation = "adminResendTicket"
+    try:
+        _operations_admin(ctx)
+        if ctx.deps.proposals_created:
+            raise ToolError("PROPOSAL_ALREADY_CREATED")
+        if not isinstance(ticket_id, UUID):
+            raise ToolError("INVALID_ARGUMENT")
+        await require_ref(ctx.deps, "TICKET", ticket_id)
+        code = await _known_ticket_code(ctx, ticket_id)
+        query = {"code": code, "limit": 1}
+        ticket_result = await _operations_read(
+            ctx, "adminListTickets", query=query, requested={**query, "ticket_id": str(ticket_id)}
+        )
+        ticket = ticket_result["data"]["items"][0]
+        if ticket["status"] != "ISSUED":
+            raise ToolError("TICKET_USED" if ticket["status"] == "USED" else "TICKET_NOT_VALID")
+        orders = (await _operations_read(ctx, "adminListOrders", query={"q": ticket["order_code"], "limit": 1}))[
+            "data"
+        ]["items"]
+        if len(orders) != 1 or orders[0]["code"].upper() != ticket["order_code"].upper():
+            raise ToolError("INVALID_TOOL_RESULT")
+        if orders[0]["status"] != "PAID":
+            raise ToolError("ORDER_STATE_INVALID")
+        now = datetime.now(UTC)
+        expires_at = now + pending.DEFAULT_TTL
+        display = {"ticket_code": ticket["code"], "message": "Yêu cầu gửi lại vé tới email trên đơn."}
+        try:
+            action_id, version = await pending.create(
+                conversation_id=ctx.deps.conversation_id,
+                turn_id=ctx.deps.turn_id,
+                actor_id=ctx.deps.principal.user_id,
+                role=ctx.deps.principal.role,
+                operation=pending.Operation.ADMIN_RESEND_TICKET,
+                payload={"path": {"ticket_id": str(ticket_id)}, "body": None},
+                display=display,
+                expires_at=expires_at,
+            )
+        except NotImplementedError:
+            # KAN-193 chưa sẵn sàng: không trả đề xuất giả và không gửi email.
+            raise ToolError("BACKEND_UNAVAILABLE", retryable=True) from None
+        ctx.deps.blocks.append(
+            ConfirmAction(
+                action_id=action_id,
+                version=version,
+                operation=pending.Operation.ADMIN_RESEND_TICKET,
+                expires_at=expires_at,
+                display=display,
+            )
+        )
+        # guarded_tool là nơi duy nhất tăng proposals_created sau khi tool thành công.
+        return ok(
+            operation,
+            {"status": "PROPOSED", "action_id": str(action_id), "expires_at": expires_at.isoformat()},
+            observed_at=now,
+        )
+    except ToolError as error:
+        return fail(operation, error)
 
 
 BUYER_PROPOSAL_TOOLS = (

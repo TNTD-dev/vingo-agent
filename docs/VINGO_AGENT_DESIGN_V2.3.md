@@ -193,7 +193,7 @@ Text đã stream không bị thu hồi; block và notice là nguồn đúng. Đ�
 | PaymentLink | `order_id,payment_url,expires_at` (chỉ từ kết quả thực thi, không vào model) |
 | TicketList | `items:[{ticket_id,code,status,event_title,starts_at,zone,row?,number?}]` |
 | StatCards | `metric,unit,from,to,timezone,computed_at,value?,series?` |
-| AdminTable | `kind: EVENTS\|VENUES\|LAYOUTS\|TICKETS, columns, rows` |
+| AdminTable | `kind: EVENTS\|VENUES\|LAYOUTS\|TICKETS\|ORDERS\|CHECKINS\|AUDIT_LOGS, columns, rows` |
 | ConfirmAction | Mục 7 |
 | ActionResult | `action_id,operation,status: SUCCEEDED\|FAILED\|UNKNOWN,code?,message` |
 
@@ -215,6 +215,7 @@ Text đã stream không bị thu hồi; block và notice là nguồn đúng. Đ�
 Schema tool không có `user_id`, `role`, token, URL, giá hay Idempotency-Key; code tự thêm khi gọi backend.
 
 **Mã lỗi tool:** dùng nguyên mã lỗi backend (`SEAT_TAKEN`, `NOT_ENOUGH_STOCK`, `SHOWTIME_NOT_ON_SALE`, `ORDER_STATE_INVALID`, `HOLD_EXPIRED`, `MAX_TICKETS_EXCEEDED`, `PROFILE_REQUIRED`, `EVENT_INCOMPLETE`, `EVENT_LOCKED`, `SHOWTIME_LOCKED`, `TICKET_USED`, `TICKET_NOT_VALID`, `FORBIDDEN`, `NOT_FOUND`, `RATE_LIMITED`, `VALIDATION_ERROR`). Agent thêm: `INVALID_ARGUMENT`, `INVALID_REFERENCE`, `INVALID_TOOL_RESULT`, `BACKEND_UNAVAILABLE` (5xx/timeout khi đọc), `EXECUTION_UNKNOWN`, `LIMIT_EXCEEDED`, `CONTEXT_LIMIT`, `TURN_IN_PROGRESS`, `ACTION_NOT_PENDING`, `FORM_REQUIRED`, `STALE_PROPOSAL`, `CONFIRM_PHRASE_REQUIRED`, `PROPOSAL_ALREADY_CREATED` (đề xuất thứ hai trong cùng turn). Tool đọc gặp 429/5xx: thử lại tối đa 2 lần, tôn trọng `Retry-After`.
+
 
 ### 4.2 Buyer — đọc (12)
 

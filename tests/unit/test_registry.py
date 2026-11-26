@@ -9,14 +9,14 @@ def test_buyer_has17Tools_withoutAdminTools():
     assert not any(name.startswith(("get_admin", "admin_", "propose_create_event")) for name in tools)
 
 
-def test_admin_has18Tools_withSharedSeatmapName():
+def test_admin_has23Tools_withSharedSeatmapName():
     tools = tools_for(Role.ADMIN)
-    assert len(tools) == 19
+    assert len(tools) == 23
     assert tools["get_seatmap"].__name__ == "get_seatmap_admin"
 
 
-def test_totalDistinctToolNames_is32():
-    assert len(set(tools_for(Role.BUYER)) | set(tools_for(Role.ADMIN))) == 33
+def test_totalDistinctToolNames_is37():
+    assert len(set(tools_for(Role.BUYER)) | set(tools_for(Role.ADMIN))) == 37
 
 
 def test_disabledTools_areNotRegistered(monkeypatch):

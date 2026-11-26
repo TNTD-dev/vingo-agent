@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from vingo_agent.actions.proposals import BACKEND_OPERATION, Operation
 from vingo_agent.persistence.db import transaction
 from vingo_agent.persistence.models import execution, pending_action, resource_ref
+from vingo_agent.schemas.errors import BackendErrorCode
 from vingo_agent.tools.base import ToolError
 
 CATALOG_RETRY = frozenset(
@@ -89,6 +90,39 @@ async def run(action_id, *, backend, buyer=None) -> tuple[str, str | None, dict]
                 .on_conflict_do_nothing()
             )
     return status, code, ids
+
+
+async def execute_admin_resend(*, backend, payload: dict) -> tuple[str, str | None, dict]:
+    """Handler sau CAS của KAN-193; gửi một lần, timeout/5xx không retry vì backend không idempotent."""
+    if type(payload) is not dict or set(payload) != {"path", "body"} or payload["body"] is not None:
+        return "FAILED", "INVALID_ARGUMENT", {}
+    path = payload["path"]
+    if type(path) is not dict or set(path) != {"ticket_id"}:
+        return "FAILED", "INVALID_ARGUMENT", {}
+    try:
+        ticket_id = str(UUID(str(path["ticket_id"])))
+    except (ValueError, TypeError, AttributeError):
+        return "FAILED", "INVALID_ARGUMENT", {}
+    try:
+        response = await backend.write("adminResendTicket", path={"ticket_id": ticket_id}, body=None)
+    except NotImplementedError:
+        return "FAILED", "BACKEND_UNAVAILABLE", {}
+    except httpx.TransportError:
+        return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+    except ToolError as error:
+        if error.code in {"BACKEND_UNAVAILABLE", "EXECUTION_UNKNOWN"}:
+            return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+        allowed = {item.value for item in BackendErrorCode}
+        return "FAILED", error.code if error.code in allowed else "VALIDATION_ERROR", {}
+    if response.is_success:
+        # 202 chỉ xác nhận enqueue, không chứng minh email đã được nhận.
+        return "SUCCEEDED", None, {}
+    if response.is_client_error:
+        candidate = _json_object(response).get("code")
+        allowed = {item.value for item in BackendErrorCode}
+        code = candidate if isinstance(candidate, str) and candidate in allowed else "VALIDATION_ERROR"
+        return "FAILED", code, {}
+    return "UNKNOWN", "EXECUTION_UNKNOWN", {}
 
 
 def _json_object(response: httpx.Response) -> dict:

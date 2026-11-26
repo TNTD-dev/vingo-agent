@@ -20,6 +20,13 @@ SPECS: dict[str, dict[str, FieldSpec]] = {}
 
 def project(operation: str, raw: dict[str, Any], *, role: str, requested=None) -> tuple[dict[str, Any], bool]:
     """Dựng object mới, kiểm schema/ID rồi cắt list theo giới hạn byte."""
+    if operation in ("adminListOrders", "adminGetOrder", "adminListTickets", "listShowtimeCheckins", "listAuditLogs"):
+        from vingo_agent.tools.admin_read import project_operations
+
+        if role != "ADMIN":
+            raise ToolError("FORBIDDEN")
+        # Projection vận hành kiểm kích thước trước, không cắt mất hàng của trang có cursor.
+        return project_operations(operation, raw, requested or {}), False
     if operation not in SPECS:
         raise ToolError("INVALID_TOOL_RESULT")
     return bound_result(validate_object(raw, SPECS[operation], requested or {}))

@@ -51,6 +51,10 @@ OPERATIONS: dict[str, Operation] = {
     "listAdminEvents": Operation("GET", "/admin/events"),
     "getAdminEvent": Operation("GET", "/admin/events/{event_id}"),
     "adminListTickets": Operation("GET", "/admin/tickets"),
+    "adminListOrders": Operation("GET", "/admin/orders"),
+    "adminGetOrder": Operation("GET", "/admin/orders/{order_id}"),
+    "listShowtimeCheckins": Operation("GET", "/admin/showtimes/{showtime_id}/checkins"),
+    "listAuditLogs": Operation("GET", "/admin/audit-logs"),
     # Ghi (chỉ actions/execution.py gọi)
     "holdSeats": Operation("POST", "/showtimes/{showtime_id}/holds", write=True, idempotent_key=True),
     "createPayment": Operation("POST", "/orders/{order_id}/payments", write=True, idempotent_key=True),

@@ -136,6 +136,9 @@ class StatCards(BaseModel):
 
 
 class AdminTableKind(StrEnum):
+    ORDERS = "ORDERS"
+    CHECKINS = "CHECKINS"
+    AUDIT_LOGS = "AUDIT_LOGS"
     EVENTS = "EVENTS"
     VENUES = "VENUES"
     LAYOUTS = "LAYOUTS"
