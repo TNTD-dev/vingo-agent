@@ -70,3 +70,12 @@ def test_history_preservesCompleteToolPair():
     assert len(history) == 2
     assert history[0].parts[0].tool_call_id == history[1].parts[0].tool_call_id
     assert not builder.history_messages(None, list(reversed(rows)))
+
+
+async def test_context_omitsSystemPrompt_whenAgentUsesInstructions(monkeypatch):
+    # Agent nhận prompt qua `instructions`; thêm SystemPromptPart nữa là gửi prompt hai lần.
+    monkeypatch.setattr(builder, "load_context", AsyncMock(return_value=(None, [])))
+    messages = await builder.build_context("c", system_prompt="", now_vn="now", new_message="hi")
+    assert not any(isinstance(part, SystemPromptPart) and part.content == "" for m in messages for part in m.parts)
+    assert isinstance(messages[0].parts[0], SystemPromptPart)  # context động vẫn đứng trước tin nhắn mới
+    assert isinstance(messages[-1].parts[0], UserPromptPart)

@@ -34,8 +34,18 @@ def test_createConversation_returns403_withUnknownRole():
     assert client().post("/internal/v1/conversations", headers=headers).status_code == 403
 
 
-def test_createConversation_returns501_whileSkeleton():
-    assert client().post("/internal/v1/conversations", headers=HEADERS).status_code == 501
+def test_createConversation_returns201_withAuthenticatedOwner(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from vingo_agent.api.routes import repo
+
+    conversation_id = uuid4()
+    create = AsyncMock(return_value={"id": conversation_id, "role": "BUYER"})
+    monkeypatch.setattr(repo, "create_conversation", create)
+    response = client().post("/internal/v1/conversations", headers=HEADERS)
+    assert response.status_code == 201
+    assert response.json() == {"conversation_id": str(conversation_id), "role": "BUYER"}
+    assert str(create.call_args.args[0]) == HEADERS["X-Vingo-User-Id"]
 
 
 def test_sendMessage_returns422_withExtraField():

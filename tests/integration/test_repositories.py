@@ -88,3 +88,22 @@ async def test_role_canOnlyAccessAgentSchema(engine):
         async with engine.begin() as conn:
             await conn.execute(text("SET LOCAL ROLE vingo_agent"))
             await conn.execute(text("SELECT * FROM public.business_secret"))
+
+
+async def test_inputUsage_readsLatestSuccessfulMeasurement_fromSameConversation(engine):
+    cid = (await repo.create_conversation(uuid4(), "BUYER"))["id"]
+    assert await repo.get_last_input_usage(cid) is None
+    for index, (state, tokens, chars) in enumerate(
+        [
+            ("COMPLETED", 20, 80),
+            ("AWAITING_CONFIRMATION", 30, 150),
+            ("FAILED", 100, 1000),
+            ("COMPLETED", 0, 500),
+            ("COMPLETED", None, None),
+        ]
+    ):
+        turn = await repo.create_turn(cid, uuid4(), f"usage-{index}")
+        await repo.set_input_usage(turn["id"], tokens, chars)
+        await repo.transition_turn(turn["id"], "RUNNING", state)
+    assert dict(await repo.get_last_input_usage(cid)) == {"last_input_tokens": 30, "last_input_chars": 150}
+    assert await repo.get_last_input_usage(uuid4()) is None

@@ -24,4 +24,26 @@ BLOCK_FOR_OPERATION: dict[str, str] = {
 
 
 def build_block(operation: str, data: dict[str, Any], *, role: str) -> BaseModel | None:
-    raise NotImplementedError
+    from vingo_agent.schemas import blocks
+
+    kind = BLOCK_FOR_OPERATION.get(operation)
+    if kind is None:
+        return None
+    payload = dict(data)
+    if kind == "SeatMap" and role == "BUYER":
+        payload["seats"] = [{k: v for k, v in seat.items() if k != "status"} for seat in payload.get("seats", [])]
+    if kind == "TicketList" and operation == "getTicket":
+        payload = {"items": [data]}
+    if kind == "AdminTable":
+        table_kind = {
+            "listVenues": "VENUES",
+            "listSeatLayouts": "LAYOUTS",
+            "listAdminEvents": "EVENTS",
+            "adminListTickets": "TICKETS",
+        }[operation]
+        items = payload.get("items", [])
+        columns = list(items[0]) if items else []
+        payload = {"kind": table_kind, "columns": columns, "rows": [[row.get(key) for key in columns] for row in items]}
+    if kind == "StatCards" and "from" in payload:
+        payload["from_"] = payload.pop("from")
+    return getattr(blocks, kind).model_validate(payload)
