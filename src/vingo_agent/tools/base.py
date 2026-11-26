@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from vingo_agent.api.auth import Principal
 from vingo_agent.clients.backend import BackendClient
+from vingo_agent.persistence import repositories
 from vingo_agent.schemas.chat import VisibleAction
 
 ResourceType = Literal["EVENT", "SHOWTIME", "ZONE", "SEAT", "ORDER", "TICKET", "VENUE", "LAYOUT", "ACTION"]
@@ -61,9 +62,10 @@ def fail(operation: str, error: ToolError) -> dict[str, Any]:
 
 async def require_ref(deps: TurnDeps, resource_type: ResourceType, resource_id: UUID) -> None:
     """G5: ID phải đã xuất hiện trong hội thoại (resource_ref), đúng loại. Sai → INVALID_REFERENCE."""
-    raise NotImplementedError
+    if not await repositories.has_ref(deps.conversation_id, resource_type, resource_id):
+        raise ToolError("INVALID_REFERENCE")
 
 
 async def record_refs(deps: TurnDeps, resource_type: ResourceType, ids: list[UUID]) -> None:
     """Ghi Ref từ kết quả tool đã lọc, UI selection hoặc kết quả thực thi."""
-    raise NotImplementedError
+    await repositories.add_refs(deps.conversation_id, resource_type, ids)

@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     max_tool_calls: int = 40
     max_input_chars: int = 4000
     compact_ratio: float = Field(default=0.8, gt=0, lt=1)
+    context_window_tokens: int = Field(default=128000, gt=0)
+    output_reserved_tokens: int = Field(default=8192, ge=0)
     lease_s: float = 150  # lease của turn > deadline để không bị turn khác chiếm giữa chừng
 
     # Kill switch (V2.3 mục 9): tool trong danh sách không được đăng ký với model.
