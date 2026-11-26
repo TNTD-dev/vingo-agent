@@ -8,7 +8,7 @@ import pytest
 
 from evals.fixtures import ALIASES, connect, delta, dsn, reset, snapshot
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.eval]
 
 
 @pytest.fixture(scope="module")
@@ -22,7 +22,7 @@ def eval_database():
 async def test_fixture_matchesLatestBackendSchema_andResetsAgent(eval_database, monkeypatch):
     migrations = Path("../vingo-backend/src/main/resources/db/migration")
     if not migrations.exists():
-        pytest.skip("Repo backend chỉ đọc chưa có trên máy CI")
+        pytest.fail("Cần repo vingo-backend cạnh vingo-agent để đọc migration (test eval, CI không chạy)")
     conn = await asyncpg.connect(dsn(eval_database))
     try:
         for filename in [

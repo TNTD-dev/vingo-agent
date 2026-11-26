@@ -8,7 +8,7 @@ uv run pytest tests/integration
 ```
 
 Pytest dùng FunctionModel/respx và Postgres Testcontainers khi cần, không dùng key model hay backend đang chạy.
-Docker cần sẵn cho integration. Test tương thích SQL fixture đọc migration từ repo backend bên cạnh; CI không có repo đó sẽ skip riêng test này. `--mode pytest` cũng chạy node pytest gắn với case Real.
+Docker cần sẵn cho integration. Test tương thích SQL fixture đọc migration từ repo backend bên cạnh; Test của bộ eval gắn marker `eval`, CI chưa chạy (`pytest -m "not eval"`); chạy tay bằng `uv run pytest tests -m eval`. `--mode pytest` cũng chạy node pytest gắn với case Real.
 `Backend` chỉ ghi `LINKED`; runner không chạy test của repo backend.
 
 Real/E2E cần backend **test riêng**, Flyway mới nhất, schema agent đã `alembic upgrade head`,

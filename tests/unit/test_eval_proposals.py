@@ -57,3 +57,7 @@ async def test_readyAdminProposal_createsPending_withoutBusinessWrite(name, monk
     create.assert_awaited_once()
     backend.write.assert_not_called()
     assert ctx.deps.blocks[0].type == "ConfirmAction"
+
+
+# Test của bộ eval: CI chưa chạy (pytest -m "not eval").
+pytestmark = pytest.mark.eval

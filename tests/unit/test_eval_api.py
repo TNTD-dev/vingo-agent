@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
+import pytest
 from pydantic_ai.models.function import FunctionModel
 
 from vingo_agent.agents import orchestrator
@@ -50,3 +51,7 @@ def test_unreleasedTools_absentFromBothRoles():
     }
     for role in Role:
         assert not disabled & tools_for(role).keys()
+
+
+# Test của bộ eval: CI chưa chạy (pytest -m "not eval").
+pytestmark = pytest.mark.eval
