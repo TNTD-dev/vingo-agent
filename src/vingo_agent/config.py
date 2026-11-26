@@ -35,11 +35,9 @@ class Settings(BaseSettings):
 
     # Kill switch (V2.3 mục 9): tool trong danh sách không được đăng ký với model.
     agent_disabled_tools: Annotated[frozenset[str], NoDecode] = frozenset()
-    # Host chính xác được phép xuất hiện trong chữ model; rỗng khi chưa cấu hình frontend.
-    allowed_link_hosts: Annotated[frozenset[str], NoDecode] = frozenset()
     log_level: str = "INFO"
 
-    @field_validator("agent_disabled_tools", "allowed_link_hosts", mode="before")
+    @field_validator("agent_disabled_tools", mode="before")
     @classmethod
     def _split(cls, value: object) -> object:
         if isinstance(value, str):

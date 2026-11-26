@@ -177,8 +177,6 @@ Mỗi turn có đúng một sự kiện cuối (`turn.completed` hoặc `turn.fa
 1. Text có cụm khẳng định thao tác ghi ("đã giữ", "đã thanh toán", "đã hủy", "đã gửi", "đã tạo", "đã công bố", "đã khóa") mà turn không có thao tác đó thành công → `notice WARN`: "Thao tác chưa được thực hiện. Vui lòng xem thẻ bên dưới."
 2. Text có số tiền (định dạng VND) không trùng giá trị nào trong kết quả tool của turn hoặc context → `notice WARN`: "Giá chính xác xem trên thẻ."
 
-3. Text có URL (`http/https`, `www.`, tên miền trần có path) với host ngoài `allowed_link_hosts`, hoặc có ảnh Markdown → `notice WARN`: "Liên kết trong câu trả lời không phải của Vingo. Đừng bấm hoặc nhập thông tin thanh toán." Ghi `denied("UNVERIFIED_LINK")`. Host so khớp chính xác; cấu hình `ALLOWED_LINK_HOSTS` bằng danh sách cách nhau dấu phẩy. Chưa có setting frontend nên mặc định rỗng (cảnh báo mọi link).
-
 Text đã stream không bị thu hồi; block và notice là nguồn đúng. Đây là đánh đổi có chủ ý để có trải nghiệm stream.
 
 **Payload block:**
@@ -402,7 +400,7 @@ Agent không lưu session token; chỉ dùng trong request đang xử lý. Backe
 | G6 Outbound | `clients/backend.py` | Chỉ operation trong `OPERATIONS` (method + path cố định), path param là UUID, host từ config, không theo redirect | Chặn, `INVALID_ARGUMENT` |
 | G7 Lọc kết quả | `tools/projections.py`, `guardrails/result.py` | Dựng object mới từ allowlist (kể cả lồng nhau); field bắt buộc, kiểu, enum; ID trong kết quả khớp ID đã hỏi; ≤ `MAX_RESULT_BYTES`, quá thì cắt và `truncated=true`/`next_cursor`. Không bao giờ lọt `qr_token`, `payment_url`, email, SĐT, `buyer_*`, SVG. `meta.observed_at`: giá trị là ảnh chụp tại thời điểm đó | Field lạ bị bỏ; sai schema/ID → `INVALID_TOOL_RESULT`, **không** ghi Ref, không dựng block, không làm bằng chứng số tiền (G9) |
 | G8 Xác nhận | `guardrails/tool.before_tool_call`, `actions/confirm.py` | Trong turn: tối đa **một** tool đề xuất; `confirm/reject_pending_action` phải là tool call đầu tiên và đủ điều kiện mục 4.5. Lúc xác nhận: chủ đề xuất, version, PENDING, chưa hết hạn, CAS `PENDING→CONFIRMED` + EXECUTION cùng transaction (mục 7) | `PROPOSAL_ALREADY_CREATED` (đề xuất thứ hai) / `ACTION_NOT_PENDING` / `FORM_REQUIRED` / `CONFIRM_PHRASE_REQUIRED` / 403, không ghi |
-| G9 Câu trả lời | `guardrails/output.py` | Theo mục 3.3: chữ model stream ngay; sau khi xong, câu khẳng định thao tác ghi không có thao tác thành công tương ứng, số tiền không có trong kết quả tool/context, URL ngoài `allowed_link_hosts`, hoặc ảnh Markdown → `notice WARN` (link/ảnh ghi `UNVERIFIED_LINK`). Block và PaymentLink chỉ do code dựng từ kết quả đã qua G7 | `notice`; không thu hồi chữ đã stream |
+| G9 Câu trả lời | `guardrails/output.py` | Theo mục 3.3: chữ model stream ngay; sau khi xong, câu khẳng định thao tác ghi không có thao tác thành công tương ứng, hoặc số tiền không có trong kết quả tool/context → `notice WARN`. Block và PaymentLink chỉ do code dựng từ kết quả đã qua G7 | `notice`; không thu hồi chữ đã stream |
 | G10 Giới hạn | `guardrails/limits.py`, orchestrator | 120 s/turn; 20 model call (kể cả lần gọi tóm tắt), 40 tool call; một turn chạy mỗi hội thoại (lease); context theo mục 6 | `LIMIT_EXCEEDED` / `CONTEXT_LIMIT` / 409 `TURN_IN_PROGRESS`; giữ đề xuất đã tạo; EXECUTION đã gửi backend không tự đánh dấu FAILED |
 | G11 Log | `observability/logging.log_event` | Chỉ field trong allowlist; không log nội dung tin nhắn, tham số tool, body, token, OTP, form, payment URL, QR | — |
 

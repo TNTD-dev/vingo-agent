@@ -418,15 +418,13 @@ async def test_turn_reusesPreviousRatio_withoutReusingAnchor(turn_env, monkeypat
     assert o.compact_if_needed.call_args.args[1] == 200
 
 
-async def test_T07_replyNoticesAndLinkDenial_followStreamAndPersist(turn_env, monkeypatch, caplog):
+async def test_T07_replyNotices_followStreamAndPersist(turn_env, monkeypatch, caplog):
     import logging
-
-    from vingo_agent.guardrails.output import LINK_WARNING
 
     principal, cid, tid, mocks = turn_env
 
     async def respond(messages, info):
-        yield "Đã thanh toán 999.999 VND. https://evil.xyz/pay ![QR](https://evil.xyz/qr)"
+        yield "Đã thanh toán 999.999 VND."
 
     monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond))
     with caplog.at_level(logging.INFO):
@@ -435,40 +433,12 @@ async def test_T07_replyNoticesAndLinkDenial_followStreamAndPersist(turn_env, mo
     assert warnings == [
         {"level": "WARN", "text": "Thao tác chưa được thực hiện. Vui lòng xem thẻ bên dưới."},
         {"level": "WARN", "text": "Giá chính xác xem trên thẻ."},
-        {"level": "WARN", "text": LINK_WARNING},
     ]
     assert events[-1].type == "turn.completed"
     assert max(e.seq for e in events if e.type == "text.delta") < min(e.seq for e in events if e.type == "notice")
     persisted = mocks["transition_turn"].call_args.kwargs["final_text_and_blocks"]
     assert persisted["notices"] == warnings
     denied = [getattr(record, "fields", {}) for record in caplog.records if record.message == "guardrail.denied"]
-    assert [f["error_code"] for f in denied] == ["UNVERIFIED_REPLY", "UNVERIFIED_REPLY", "UNVERIFIED_LINK"]
+    assert [f["error_code"] for f in denied] == ["UNVERIFIED_REPLY", "UNVERIFIED_REPLY"]
     assert all(f["outcome"] == "DENIED" for f in denied)
-    assert "evil.xyz" not in repr(denied)
-
-
-@pytest.mark.parametrize(
-    "text,warn",
-    [
-        ("https://vingo.example/orders", False),
-        ("https://evil.xyz/pay", True),
-        ("www.evil.xyz", True),
-        ("evil.xyz/pay", True),
-        ("![vé](https://vingo.example/qr)", True),
-    ],
-)
-async def test_T07_turnUsesConfiguredLinkHosts_andWarnsForImages(turn_env, monkeypatch, text, warn):
-    from vingo_agent.guardrails.output import LINK_WARNING
-
-    principal, cid, tid, mocks = turn_env
-    monkeypatch.setenv("ALLOWED_LINK_HOSTS", "vingo.example")
-    get_settings.cache_clear()
-
-    async def respond(messages, info):
-        yield text
-
-    monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond))
-    events = [e async for e in await o.run_turn(conversation_id=cid, request=request(), principal=principal)]
-    notices = [e.payload for e in events if e.type == "notice"]
-    assert notices == ([{"level": "WARN", "text": LINK_WARNING}] if warn else [])
-    assert events[-1].type == "turn.completed"
+    assert "999.999" not in repr(denied)
