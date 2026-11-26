@@ -39,6 +39,58 @@ BACKEND_OPERATION: dict[Operation, str] = {
 NEEDS_BUYER_FORM = frozenset({Operation.CREATE_PAYMENT})
 
 
-async def create(*, conversation_id, turn_id, actor_id, role, operation: Operation, payload, display, expires_at):
+async def create(*, conversation_id, actor_id, role, operation: str, payload, display, expires_at=None, turn_id=None):
     """Trả (action_id, version). turn_id = None khi code tự tạo (đề xuất thanh toán sau hold)."""
-    raise NotImplementedError
+    from datetime import UTC, datetime
+
+    from sqlalchemy import insert, select, update
+
+    from vingo_agent.persistence.db import transaction
+    from vingo_agent.persistence.models import conversation, pending_action
+    from vingo_agent.tools.base import ToolError
+
+    now = datetime.now(UTC)
+    ttl = (
+        HOLD_TTL
+        if operation == Operation.HOLD_SEATS
+        else timedelta(minutes=30)
+        if operation == "SEAT_LAYOUT"
+        else DEFAULT_TTL
+    )
+    if operation in {Operation.CREATE_PAYMENT, Operation.CANCEL_ORDER} and expires_at is None:
+        raise ToolError("INVALID_ARGUMENT")
+    if operation not in {Operation.CREATE_PAYMENT, Operation.CANCEL_ORDER}:
+        expires_at = min(expires_at, now + ttl) if expires_at is not None else now + ttl
+    async with transaction() as conn:
+        # Khóa cha để cả hai lần tạo đầu tiên cũng tuần tự, trước unique partial index.
+        owner = (
+            (await conn.execute(select(conversation).where(conversation.c.id == conversation_id).with_for_update()))
+            .mappings()
+            .one_or_none()
+        )
+        if owner is None or owner["owner_id"] != actor_id or owner["role"] != role:
+            raise ToolError("FORBIDDEN")
+        await conn.execute(
+            update(pending_action)
+            .where(pending_action.c.conversation_id == conversation_id, pending_action.c.state == "PENDING")
+            .values(state="SUPERSEDED", decided_at=now)
+        )
+        row = (
+            await conn.execute(
+                insert(pending_action)
+                .values(
+                    conversation_id=conversation_id,
+                    turn_id=turn_id,
+                    actor_id=actor_id,
+                    role=role,
+                    operation=operation,
+                    payload=payload,
+                    display=display,
+                    expires_at=expires_at,
+                    version=1,
+                    state="PENDING",
+                )
+                .returning(pending_action.c.id, pending_action.c.version)
+            )
+        ).one()
+        return row.id, row.version

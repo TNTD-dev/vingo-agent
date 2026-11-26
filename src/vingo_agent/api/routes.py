@@ -1,12 +1,19 @@
 """Route đọc và stream nội bộ; confirm/reject dành cho KAN-193."""
 
+import json
+from hashlib import sha256
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from vingo_agent.actions.confirm import ConfirmedVia, confirm, reject
+from vingo_agent.actions.lookup import resolve
 from vingo_agent.agents.orchestrator import authorize, run_turn
 from vingo_agent.api.auth import CurrentPrincipal
+from vingo_agent.api.sse import EventType, StreamEvent
+from vingo_agent.clients.backend import BackendClient
+from vingo_agent.config import get_settings
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.schemas.chat import (
     ConfirmRequest,
@@ -17,12 +24,9 @@ from vingo_agent.schemas.chat import (
     SendMessageRequest,
     TurnView,
 )
+from vingo_agent.tools.base import ToolError
 
 router = APIRouter(prefix="/internal/v1")
-
-
-def _todo() -> HTTPException:
-    return HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "NOT_IMPLEMENTED")
 
 
 @router.post("/conversations", status_code=201)
@@ -36,10 +40,18 @@ async def create_conversation(principal: CurrentPrincipal) -> CreateConversation
 async def get_conversation(conversation_id: UUID, principal: CurrentPrincipal) -> ConversationView:
     """Lịch sử đã lọc và đề xuất PENDING; tra UNKNOWN được bổ sung trong KAN-193."""
     row = await authorize(conversation_id, principal)
+    unresolved = await repo.get_unresolved_actions(conversation_id)
+    if unresolved:
+        backend = BackendClient(get_settings(), principal.session_token)
+        try:
+            for action_id in unresolved:
+                await resolve(action_id, backend=backend)
+        finally:
+            await backend.aclose()
     messages = []
     for item in await repo.get_messages(conversation_id):
         content = dict(item["content"])
-        if item["kind"] == "ASSISTANT" and item["turn_id"]:
+        if item["kind"] in {"ASSISTANT", "SYSTEM_EVENT"} and item["turn_id"]:
             turn = await repo.get_turn(item["turn_id"])
             final = turn["final_text_and_blocks"] or {}
             content["blocks"] = final.get("blocks", [])
@@ -73,12 +85,97 @@ async def send_message(conversation_id: UUID, body: SendMessageRequest, principa
 @router.post("/actions/{action_id}/confirm")
 async def confirm_action(action_id: UUID, body: ConfirmRequest, principal: CurrentPrincipal):
     """Xác nhận bằng nút: thực thi đồng bộ, trả SSE. Không gọi model."""
-    raise _todo()
+    action = await repo.get_action(action_id)
+    if action is None:
+        raise HTTPException(409, "ACTION_NOT_PENDING")
+    await authorize(action["conversation_id"], principal)
+    # Không lưu form hay hash form; command định danh quyết định trên snapshot bất biến.
+    command_hash = sha256(
+        f"confirm:{action_id}:{body.version}:{body.buyer is not None}:{body.confirm_phrase}".encode()
+    ).hexdigest()
+    try:
+        result_turn = await repo.create_turn(action["conversation_id"], body.command_id, command_hash)
+    except ValueError:
+        raise HTTPException(409, "IDEMPOTENCY_CONFLICT") from None
+    turn_id = result_turn["id"]
+    if not result_turn["_created"]:
+        final = result_turn["final_text_and_blocks"] or {}
+        if result_turn["state"] == "COMPLETED":
+            return _confirm_stream(turn_id, final.get("blocks", []))
+        if result_turn["state"] == "FAILED":
+            code = final.get("code", "ACTION_NOT_PENDING")
+            if code in SSE_REFUSALS:
+                return _confirm_failed(turn_id, code)
+            raise HTTPException(403 if code == "FORBIDDEN" else 409, code)
+        # RUNNING do request khác hoặc process chết: CAS action là khóa thực thi.
+        # Cho service confirm chờ/đọc execution, không chặn vĩnh viễn trên turn.
+    try:
+        outcome, blocks = await confirm(
+            action_id=action_id,
+            version=body.version,
+            principal=principal,
+            via=ConfirmedVia.BUTTON,
+            buyer=body.buyer,
+            confirm_phrase=body.confirm_phrase,
+        )
+    except ToolError as error:
+        await repo.transition_turn(turn_id, "RUNNING", "FAILED", final_text_and_blocks={"code": error.code})
+        if error.code in SSE_REFUSALS:
+            return _confirm_failed(turn_id, error.code)
+        raise HTTPException(403 if error.code == "FORBIDDEN" else 409, error.code) from None
+    await repo.transition_turn(
+        turn_id,
+        "RUNNING",
+        "COMPLETED",
+        final_text_and_blocks={"text": "", "blocks": [block.model_dump(mode="json") for block in blocks]},
+    )
+
+    return _confirm_stream(turn_id, [block.model_dump(mode="json") for block in blocks])
+
+
+# Mã từ chối không có trong ErrorCode của backend: trả HTTP 409 thì backend chuyển thành 503.
+# Trả trong SSE `turn.failed` để web nhắc điền form / gõ lại tên.
+SSE_REFUSALS = frozenset({"FORM_REQUIRED", "CONFIRM_PHRASE_REQUIRED"})
+
+
+def _confirm_failed(turn_id, code):
+    async def encoded():
+        yield StreamEvent(
+            turn_id=turn_id, seq=1, type=EventType.TURN_STARTED, payload={"turn_id": str(turn_id)}
+        ).encode()
+        yield StreamEvent(turn_id=turn_id, seq=2, type=EventType.TURN_FAILED, payload={"code": code}).encode()
+
+    return StreamingResponse(
+        encoded(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
+
+
+def _confirm_stream(turn_id, blocks):
+    async def encoded():
+        yield StreamEvent(
+            turn_id=turn_id, seq=1, type=EventType.TURN_STARTED, payload={"turn_id": str(turn_id)}
+        ).encode()
+        for seq, block in enumerate(blocks, 2):
+            # JSONB đổi thứ tự key; chuẩn hóa để replay SSE giống response ban đầu.
+            data = json.loads(json.dumps(block, sort_keys=True))
+            yield StreamEvent(
+                turn_id=turn_id, seq=seq, type=EventType.BLOCK, payload={"type": data.pop("type"), "payload": data}
+            ).encode()
+        yield StreamEvent(
+            turn_id=turn_id, seq=len(blocks) + 2, type=EventType.TURN_COMPLETED, payload={"status": "COMPLETED"}
+        ).encode()
+
+    return StreamingResponse(
+        encoded(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
 
 
 @router.post("/actions/{action_id}/reject")
 async def reject_action(action_id: UUID, body: RejectRequest, principal: CurrentPrincipal) -> RejectResponse:
-    raise _todo()
+    try:
+        return RejectResponse(state=await reject(action_id=action_id, version=body.version, principal=principal))
+    except ToolError as error:
+        raise HTTPException(403 if error.code == "FORBIDDEN" else 409, error.code) from None
 
 
 @router.get("/turns/{turn_id}")

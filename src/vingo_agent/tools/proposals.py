@@ -59,8 +59,6 @@ def _admin_proposal(operation: Operation):
             try:
                 if deps.principal.role != Role.ADMIN:
                     raise ToolError("FORBIDDEN")
-                if deps.proposals_created:
-                    raise ToolError("LIMIT_EXCEEDED")
                 path, body, display = await tool(ctx, *args, **kwargs)
                 now = datetime.now(UTC)
                 expires_at = now + pending.DEFAULT_TTL
@@ -76,7 +74,6 @@ def _admin_proposal(operation: Operation):
                 )
             except ToolError as error:
                 return fail(backend_operation, error)
-            deps.proposals_created += 1
             deps.blocks.append(
                 ConfirmAction(
                     action_id=action_id, version=version, operation=operation, expires_at=expires_at, display=display
