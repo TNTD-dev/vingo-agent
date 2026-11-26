@@ -285,3 +285,28 @@ async def get_last_input_usage(conversation_id):
             .mappings()
             .one_or_none()
         )
+
+
+async def get_unresolved_actions(conversation_id):
+    async with transaction() as conn:
+        return list(
+            (
+                await conn.scalars(
+                    select(m.execution.c.action_id)
+                    .join(m.pending_action, m.pending_action.c.id == m.execution.c.action_id)
+                    .where(
+                        m.pending_action.c.conversation_id == conversation_id,
+                        m.execution.c.state.in_(("UNKNOWN", "RUNNING")),
+                    )
+                )
+            ).all()
+        )
+
+
+async def get_action(action_id):
+    async with transaction() as conn:
+        return (
+            (await conn.execute(select(m.pending_action).where(m.pending_action.c.id == action_id)))
+            .mappings()
+            .one_or_none()
+        )

@@ -105,3 +105,58 @@ async def test_read_unknownErrorCode_doesNotLeakBackendText():
             await client.read("searchEvents")
     finally:
         await client.aclose()
+
+
+@pytest.mark.parametrize("status", [200, 400, 503])
+@respx.mock
+async def test_write_sendsOnceWithAuthAndKey(status):
+    showtime = uuid4()
+    key = uuid4()
+    route = respx.post(f"http://backend/showtimes/{showtime}/holds").respond(status, json={"code": "SEAT_TAKEN"})
+    client = BackendClient(Settings(backend_url="http://backend", agent_to_backend_key="agent-key"), "session")
+    try:
+        response = await client.write(
+            "holdSeats", path={"showtime_id": showtime}, body={"quantity": 1}, idempotency_key=key
+        )
+        assert response.status_code == status
+        assert route.call_count == 1
+        request = route.calls[0].request
+        assert request.headers["Idempotency-Key"] == str(key)
+        assert request.headers["Authorization"] == "Bearer session"
+        assert request.headers["X-Vingo-Agent-Key"] == "agent-key"
+        assert request.extensions["timeout"]["read"] == 10
+    finally:
+        await client.aclose()
+
+
+@respx.mock
+async def test_write_timeoutIsNotRetried_andUnsafeTargetsAreBlocked():
+    route = respx.post("http://backend/admin/events").mock(side_effect=httpx.ReadTimeout("secret"))
+    client = BackendClient(Settings(backend_url="http://backend"), "session")
+    try:
+        with pytest.raises(httpx.ReadTimeout):
+            await client.write("createEvent", body={})
+        assert route.call_count == 1
+        for operation, path in [
+            ("searchEvents", None),
+            ("http://evil", None),
+            ("publishEvent", {"event_id": "../me"}),
+            ("publishEvent", {"extra": uuid4()}),
+            ("holdSeats", {"showtime_id": uuid4()}),
+        ]:
+            with pytest.raises(ToolError, match="INVALID_ARGUMENT"):
+                await client.write(operation, path=path)
+    finally:
+        await client.aclose()
+
+
+@respx.mock
+async def test_write_doesNotFollowRedirect_orSendUnneededKey():
+    route = respx.post("http://backend/admin/events").respond(307, headers={"Location": "http://evil"})
+    client = BackendClient(Settings(backend_url="http://backend"), "session")
+    try:
+        assert (await client.write("createEvent", body={}, idempotency_key=uuid4())).status_code == 307
+        assert route.call_count == 1
+        assert "Idempotency-Key" not in route.calls[0].request.headers
+    finally:
+        await client.aclose()

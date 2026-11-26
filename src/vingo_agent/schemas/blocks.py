@@ -161,6 +161,7 @@ class ConfirmAction(BaseModel):
     expires_at: datetime
     display: dict[str, object]
     form: ConfirmForm | None = None
+    confirm_phrase: str | None = None
 
 
 class ExecutionStatus(StrEnum):
