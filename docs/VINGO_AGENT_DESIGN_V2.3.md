@@ -357,12 +357,11 @@ Mọi tool đều được code và test. Tool chưa READY nằm trong `AGENT_DI
 
 | Trạng thái | Tool | Điều kiện để bật |
 |---|---|---|
-| **READY** | Toàn bộ tool đọc Buyer/Admin (trừ `suggest_seats`), 4 đề xuất Buyer, `propose_create_event`, `propose_create_showtime`, `propose_publish_event`, `propose_block_seats`, `propose_unblock_seats`, `propose_admin_resend_ticket`, `propose_create_venue`, 2 tool quyết định | — |
+| **READY** | Toàn bộ tool đọc Buyer/Admin, 4 đề xuất Buyer, `propose_create_event`, `propose_create_showtime`, `propose_publish_event`, `propose_block_seats`, `propose_unblock_seats`, `propose_admin_resend_ticket`, `propose_create_venue`, 2 tool quyết định | — |
 | **READY, kiểm `before`** | `propose_update_venue`, `propose_update_event`, `propose_update_showtime`, `propose_update_price_tiers`, `propose_add_tier_price`, `propose_update_zone_prices` | Eval A12–A14 đạt. Nên có version/ETag ở backend để đóng khoảng hở (mục 11) |
 | **NEEDS_PLATFORM** | `propose_cancel_event`, `propose_cancel_showtime` | Xác nhận có `confirm_phrase` trên web + agent |
 | **NEEDS_PLATFORM** | `propose_seat_layout`, poster tải từ máy | `POST /chat/uploads` (backend proxy) + web chọn file |
 | **NEEDS_BACKEND** | `propose_update_event_visibility` | Endpoint `PUT /admin/events/{id}/visibility` vào contract |
-| **NEEDS_BACKEND** | `suggest_seats` | Endpoint `seat-suggestions` (vingo-backend nhánh `feat/seat-suggestions`, chờ merge); merge xong thì bật |
 
 ## 5. Quyền và an toàn (guardrails)
 

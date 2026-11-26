@@ -26,11 +26,11 @@ def test_totalDistinctToolNames_is33():
     assert len(buyer | admin) == 33
 
 
-def test_suggestSeats_isDisabledByDefault(monkeypatch):
+def test_suggestSeats_isEnabledByDefault(monkeypatch):
     monkeypatch.delenv("AGENT_DISABLED_TOOLS", raising=False)
     tools = tools_for(Role.BUYER, Settings(_env_file=None).agent_disabled_tools)
-    assert "suggest_seats" not in tools
-    assert len(tools) == 16
+    assert "suggest_seats" in tools
+    assert len(tools) == 17
 
 
 def test_buyerSearchAndSeatSchemas_matchModelInputs():
