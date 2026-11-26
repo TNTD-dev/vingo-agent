@@ -6,7 +6,11 @@
 - Không log body, token.
 """
 
+import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+from string import Formatter
 from typing import Any
 from uuid import UUID
 
@@ -70,7 +74,71 @@ class BackendClient:
         self, operation: str, *, path: dict[str, Any] | None = None, query: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Gọi operation đọc; lỗi chuyển thành ToolError theo mã backend (ProblemDetail.code)."""
-        raise NotImplementedError
+        from vingo_agent.tools.base import ToolError
+
+        spec = OPERATIONS.get(operation)
+        if spec is None or spec.write:
+            raise ToolError("INVALID_ARGUMENT")
+        fields = {name for _, name, _, _ in Formatter().parse(spec.path) if name}
+        if set(path or {}) != fields:
+            raise ToolError("INVALID_ARGUMENT")
+        try:
+            safe_path = {key: str(UUID(str(value))) for key, value in (path or {}).items()}
+        except (ValueError, TypeError, AttributeError):
+            raise ToolError("INVALID_ARGUMENT") from None
+        url = self._settings.backend_url.rstrip("/") + spec.path.format(**safe_path)
+        for attempt in range(3):
+            try:
+                response = await self._http.request(
+                    spec.method,
+                    url,
+                    params=query,
+                    headers={
+                        "Authorization": f"Bearer {self._token}",
+                        "X-Vingo-Agent-Key": self._settings.agent_to_backend_key,
+                    },
+                    follow_redirects=False,
+                )
+            except httpx.RequestError:
+                raise ToolError("BACKEND_UNAVAILABLE", retryable=True) from None
+            retryable = response.status_code == 429 or response.status_code >= 500
+            if retryable and attempt < 2:
+                delay = 0.25 * (2**attempt)
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        delay = max(delay, float(retry_after))
+                    except ValueError:
+                        try:
+                            delay = max(delay, (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds())
+                        except (ValueError, TypeError, OverflowError):
+                            pass
+                await asyncio.sleep(delay)
+                continue
+            if not response.is_success:
+                code = (
+                    "BACKEND_UNAVAILABLE"
+                    if response.status_code >= 500
+                    else "RATE_LIMITED"
+                    if response.status_code == 429
+                    else "INVALID_TOOL_RESULT"
+                )
+                if not retryable:
+                    try:
+                        candidate = response.json().get("code")
+                        if isinstance(candidate, str) and candidate.isupper() and candidate.replace("_", "").isalnum():
+                            code = candidate
+                    except (ValueError, AttributeError):
+                        pass
+                raise ToolError(code, retryable=retryable)
+            try:
+                data = response.json()
+                if not isinstance(data, dict):
+                    raise ValueError
+                return data
+            except ValueError:
+                raise ToolError("INVALID_TOOL_RESULT") from None
+        raise ToolError("BACKEND_UNAVAILABLE", retryable=True)
 
     async def write(
         self,
