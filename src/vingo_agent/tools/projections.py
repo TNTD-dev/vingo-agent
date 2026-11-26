@@ -274,15 +274,18 @@ def project(
     requested: dict[str, Any] | None = None,
     row: str | None = None,
 ) -> tuple[dict[str, Any], bool]:
-    """Dựng object mới, kiểm schema và ID đã hỏi (requested) rồi cắt list theo giới hạn byte."""
+    """Dựng object mới, kiểm schema và ID đã hỏi (requested) rồi cắt list theo giới hạn byte.
+
+    Operation có khai báo trong SPECS luôn dùng SPECS; chưa khai báo thì Buyer dùng model pydantic.
+    """
     requested = requested or {}
+    if operation in SPECS:
+        return bound_result(validate_object(raw, SPECS[operation], requested))
     if role == "BUYER" and (operation in _BUYER_MODELS or operation in ("getSeatmap", "getMe")):
         data, truncated = _project_buyer(operation, raw, requested, row)
         data, bounded = bound_result(data)
         return data, truncated or bounded
-    if operation not in SPECS:
-        raise ToolError("INVALID_TOOL_RESULT")
-    return bound_result(validate_object(raw, SPECS[operation], requested))
+    raise ToolError("INVALID_TOOL_RESULT")
 
 
 def _project_buyer(
