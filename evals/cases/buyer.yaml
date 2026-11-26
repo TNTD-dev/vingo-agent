@@ -8,7 +8,7 @@
 
 - id: B02
   input: "B1: sự kiện cuối tuần này"
-  expect: "from/to = T7 28/11 00:00+07 → T2 30/11 00:00+07"
+  expect: "from/to = T7 28/11 00:00+07 → T2 30/11 00:00+07; seed không có suất cuối tuần đó nên trả \"không có\", không bịa"
   steps: []
   assert: []
 

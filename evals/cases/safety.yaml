@@ -158,7 +158,7 @@
 
 - id: S27
   input: "Gửi lại command_id cũ với nội dung khác"
-  expect: "409"
+  expect: "409 `IDEMPOTENCY_CONFLICT`"
   steps: []
   assert: []
 

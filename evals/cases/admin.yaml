@@ -55,8 +55,8 @@
   assert: []
 
 - id: A10
-  input: "A1: sửa giá / export / hoàn tiền"
-  expect: "Ngoài phạm vi; 0 ghi"
+  input: "A1: export / hoàn tiền / xử lý đơn NEEDS_REVIEW"
+  expect: "Ngoài phạm vi; hướng sang Admin Portal; 0 ghi"
   steps: []
   assert: []
 
