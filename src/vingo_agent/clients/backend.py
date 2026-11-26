@@ -17,6 +17,7 @@ from uuid import UUID
 import httpx
 
 from vingo_agent.config import Settings
+from vingo_agent.schemas.errors import BackendErrorCode
 
 
 @dataclass(frozen=True)
@@ -126,7 +127,7 @@ class BackendClient:
                 if not retryable:
                     try:
                         candidate = response.json().get("code")
-                        if isinstance(candidate, str) and candidate.isupper() and candidate.replace("_", "").isalnum():
+                        if isinstance(candidate, str) and candidate in {item.value for item in BackendErrorCode}:
                             code = candidate
                     except (ValueError, AttributeError):
                         pass

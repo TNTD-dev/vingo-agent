@@ -5,13 +5,14 @@ from contextlib import asynccontextmanager
 from importlib.resources import files
 
 import httpx
-from pydantic_ai import Agent, Tool
+from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.fallback import FallbackModel
 
 from vingo_agent.agents.registry import tools_for
+from vingo_agent.guardrails.tool import guarded_tool
 from vingo_agent.observability.logging import log_event
 from vingo_agent.schemas.chat import Role
 from vingo_agent.tools.base import TurnDeps
@@ -85,5 +86,5 @@ def build_agent(role: Role, *, model, disabled_tools: frozenset[str]):
         deps_type=TurnDeps,
         output_type=str,
         instructions=load_prompt(role),
-        tools=[Tool(fn, name=name) for name, fn in tools_for(role, disabled_tools).items()],
+        tools=[guarded_tool(name, fn) for name, fn in tools_for(role, disabled_tools).items()],
     )

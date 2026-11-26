@@ -35,7 +35,7 @@ from vingo_agent.context.tokens import TokenEstimator, text_chars
 from vingo_agent.guardrails.input import InputRejected, check_input, redact
 from vingo_agent.guardrails.limits import usage_limits
 from vingo_agent.guardrails.output import Evidence, check_reply
-from vingo_agent.observability.logging import log_event
+from vingo_agent.observability.logging import denied, log_event
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.tools.base import ToolError, TurnDeps
 from vingo_agent.tools.blocks import build_block
@@ -46,8 +46,10 @@ logger = logging.getLogger(__name__)
 async def authorize(conversation_id, principal):
     conversation = await repo.get_conversation(conversation_id)
     if not conversation or conversation["owner_id"] != principal.user_id:
+        denied("NOT_FOUND")
         raise HTTPException(404, "NOT_FOUND")
     if conversation["role"] != principal.role:
+        denied("FORBIDDEN")
         raise HTTPException(403, "FORBIDDEN")
     return conversation
 
@@ -91,6 +93,7 @@ async def run_turn(*, conversation_id, request, principal):
         turn = await repo.create_turn(conversation_id, request.command_id, command_hash)
     except ValueError as exc:
         # Backend chỉ map mã có trong ErrorCode của nó; trùng command_id khác nội dung = IDEMPOTENCY_CONFLICT.
+        denied("IDEMPOTENCY_CONFLICT")
         raise HTTPException(409, "IDEMPOTENCY_CONFLICT") from exc
     turn_id = turn["id"]
     if turn["state"] != "RUNNING":
@@ -121,12 +124,14 @@ async def run_turn(*, conversation_id, request, principal):
             and conversation["active_until"] > datetime.now(UTC)
         )
         if alive:
+            denied("TURN_IN_PROGRESS")
             raise HTTPException(409, "TURN_IN_PROGRESS")
         await repo.transition_turn(turn_id, "RUNNING", "FAILED", final_text_and_blocks={"code": "BACKEND_UNAVAILABLE"})
         await repo.release_turn(conversation_id, turn_id)
         return await run_turn(conversation_id=conversation_id, request=request, principal=principal)
     if not await repo.acquire_turn(conversation_id, turn_id, settings.lease_s):
         await repo.discard_unstarted_turn(turn_id)
+        denied("TURN_IN_PROGRESS")
         raise HTTPException(409, "TURN_IN_PROGRESS")
     try:
         text = redact(check_input(request.text, max_chars=settings.max_input_chars))
@@ -236,7 +241,8 @@ async def run_turn(*, conversation_id, request, principal):
                 _, context_rows = await repo.load_context(conversation_id)
                 for row in context_rows:
                     if row["kind"] == "TOOL_RESULT":
-                        amounts.update(amounts_in(row["content"]))
+                        if row["content"].get("result", {}).get("ok") is True:
+                            amounts.update(amounts_in(row["content"]))
                 if selection:
                     kind = "SEAT" if selection.type.value == "SEATS" else selection.type.value
                     valid = [str(value) for value in selection.ids if await repo.has_ref(conversation_id, kind, value)]
@@ -339,7 +345,8 @@ async def run_turn(*, conversation_id, request, principal):
                                                     },
                                                 }
                                             )
-                                            amounts.update(amounts_in(result))
+                                            if isinstance(result, dict) and result.get("ok") is True:
+                                                amounts.update(amounts_in(result))
                                             if isinstance(result, dict) and result.get("ok"):
                                                 block = build_block(
                                                     result.get("meta", {}).get("operation"),
@@ -348,6 +355,8 @@ async def run_turn(*, conversation_id, request, principal):
                                                 )
                                                 if block:
                                                     deps.blocks.append(block)
+                                            if not isinstance(result, dict) or result.get("ok") is not True:
+                                                deps.blocks.clear()
                                             for block in deps.blocks:
                                                 data = block.model_dump(mode="json")
                                                 payload = {"type": data.pop("type"), "payload": data}
@@ -359,21 +368,23 @@ async def run_turn(*, conversation_id, request, principal):
                             if responses:
                                 model_version = responses[-1].model_name
                 for warning in check_reply(final_text, Evidence(frozenset(), frozenset(amounts))):
+                    denied("UNVERIFIED_REPLY")
                     notice = {"level": "WARN", "text": warning}
                     notices.append(notice)
                     yield event("notice", notice)
                 state = "AWAITING_CONFIRMATION" if await repo.get_pending_action(conversation_id) else "COMPLETED"
         except UsageLimitExceeded:
+            denied("LIMIT_EXCEEDED")
             code = "LIMIT_EXCEEDED"
         except TimeoutError:
             code = "LIMIT_EXCEEDED" if timeout.expired() else "BACKEND_UNAVAILABLE"
+            denied(code)
         except ToolError as exc:
             code = exc.code
         except Exception as exc:
             code = "BACKEND_UNAVAILABLE"
             # Không nuốt lỗi lạ: ghi loại lỗi (không ghi nội dung) để còn điều tra.
             log_event(logger, "turn.error", turn_id=str(turn_id), outcome="FAILED", error_code=type(exc).__name__)
-            logger.debug("turn.error", exc_info=True)
         finally:
             final_text = redact(final_text)
             if final_text:
