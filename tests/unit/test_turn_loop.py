@@ -1,13 +1,15 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import FunctionModel
 
+from tests.unit.test_buyer_read import SHOW, ZONE, event, seat, seatmap, suggestion
 from vingo_agent.agents import orchestrator as o
 from vingo_agent.agents.factory import build_model
 from vingo_agent.api.auth import Principal
@@ -16,7 +18,6 @@ from vingo_agent.guardrails.input import REDACTED, InputRejected, check_input, r
 from vingo_agent.guardrails.limits import usage_limits
 from vingo_agent.guardrails.output import Evidence, check_reply
 from vingo_agent.schemas.chat import Role, SendMessageRequest
-from vingo_agent.tools.base import TurnDeps
 
 
 @pytest.mark.parametrize("text,status", [("", 400), (" \t", 400), ("a\x00", 400), ("abcde", 413)])
@@ -220,32 +221,54 @@ async def test_turn_deadlineEmitsLimitExceeded(turn_env, monkeypatch):
     assert events[-1].payload == {"code": "LIMIT_EXCEEDED"}
 
 
-async def test_turn_progressPrecedesToolAndBuildsBlock(turn_env, monkeypatch):
-    principal, cid, tid, mocks = turn_env
-    event_id = str(uuid4())
-
-    async def tool(ctx: RunContext[TurnDeps]):
-        return {
-            "ok": True,
-            "meta": {"operation": "searchEvents"},
-            "data": {"items": [{"event_id": event_id, "title": "Demo"}]},
-        }
-
-    # FunctionModel dùng request không stream không phù hợp iter; dùng DeltaToolCall.
+@pytest.mark.parametrize(
+    "tool,args,path,raw,block_type",
+    [
+        ("search_events", {"q": "Demo"}, "/events", {"data": [event() | {"id": str(uuid4())}]}, "EventList"),
+        (
+            "get_seatmap",
+            {"showtime_id": str(SHOW), "zone_id": str(ZONE)},
+            f"/showtimes/{SHOW}/seatmap",
+            seatmap([seat()]),
+            "SeatMap",
+        ),
+        (
+            "suggest_seats",
+            {"showtime_id": str(SHOW), "zone_id": str(ZONE), "quantity": 2},
+            f"/showtimes/{SHOW}/seat-suggestions",
+            suggestion(),
+            "SeatMap",
+        ),
+    ],
+    ids=["search_events", "get_seatmap", "suggest_seats"],
+)
+async def test_turn_progressPrecedesToolAndBuildsBlock(
+    turn_env, monkeypatch, respx_mock, tool, args, path, raw, block_type
+):
     from pydantic_ai.models.function import DeltaToolCall
+
+    principal, cid, _, _ = turn_env
+    monkeypatch.setattr(o.repo, "has_ref", AsyncMock(return_value=True))
+    monkeypatch.setattr(o.repo, "add_refs", AsyncMock())
+    route = respx_mock.get(get_settings().backend_url + path).respond(json=raw)
 
     async def respond_stream(messages, info):
         if not any(getattr(part, "part_kind", "") == "tool-return" for m in messages for part in m.parts):
-            yield {0: DeltaToolCall(name="tool", json_args="{}", tool_call_id="call1")}
+            yield {0: DeltaToolCall(name=tool, json_args=json.dumps(args), tool_call_id="call1")}
         else:
             yield "Kết quả"
 
     monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond_stream))
-    monkeypatch.setattr(o, "build_agent", lambda role, model, **kwargs: Agent(model, deps_type=TurnDeps, tools=[tool]))
     events = [e async for e in await o.run_turn(conversation_id=cid, request=request(), principal=principal)]
+    assert route.call_count == 1
+    assert events[-1].type == "turn.completed" and events[-1].payload["status"] == "COMPLETED"
+    blocks = [e.payload for e in events if e.type == "block"]
+    assert [block["type"] for block in blocks] == [block_type]
+    if block_type == "SeatMap":
+        assert blocks[0]["payload"]["showtime_id"] == str(SHOW)
+        assert blocks[0]["payload"]["zone_id"] == str(ZONE)
     kinds = [e.type for e in events]
     assert kinds.index("progress") < kinds.index("block") < kinds.index("text.delta")
-    assert events[-1].type == "turn.completed"
 
 
 @pytest.mark.parametrize("error", [TimeoutError(), ConnectionError()])

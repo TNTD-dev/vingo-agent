@@ -14,7 +14,6 @@
       tool_args:
         search_events:
           q: Demo Concert
-          city: HN
       blocks:
       - type: EventList
         items:
@@ -497,7 +496,7 @@
         new_orders: 1
         held: 2
       notices:
-      - level: INFO
+      - level: WARN
       blocks:
       - type: OrderSummary
         total_amount: 600000

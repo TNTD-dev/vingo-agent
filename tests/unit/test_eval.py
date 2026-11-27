@@ -14,7 +14,7 @@ from evals.coverage import check_coverage
 from evals.evaluators import evaluate, response
 from evals.fixtures import ALIASES, BUSINESS_TABLES, check_reset
 from evals.judge import judge, safe_payload
-from evals.runner import real_case, summarize, validate_nodes
+from evals.runner import real_case, step_actions, summarize, validate_nodes
 from tests.unit.test_buyer_read import event
 from vingo_agent.agents import orchestrator
 from vingo_agent.api.app import create_app
@@ -140,6 +140,30 @@ def test_report_doesNotCountErrorsOrBlockedAsPass():
     report = summarize([{"status": s, "group": "buyer"} for s in ["PASS", "FAIL", "ERROR", "BLOCKED"]])
     assert report["metrics"]["task_success"] == {"numerator": 1, "denominator": 4, "rate": 0.25}
     assert report["cost"] == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "step,tools",
+    [
+        ({"confirm": {}}, []),
+        ({"message": "Ok chốt.", "visible_action": "latest"}, [{"name": "confirm_pending_action"}]),
+    ],
+    ids=["button", "chat"],
+)
+def test_runner_checksHoldExecution_thenUsesPaymentCard(step, tools):
+    hold = {"type": "ConfirmAction", "action_id": "hold"}
+    payment = {"type": "ConfirmAction", "action_id": "payment"}
+    blocks = [{"type": "ActionResult", "action_id": "hold"}, {"type": "OrderSummary"}, payment]
+
+    assert step_actions(step, tools, hold, blocks) == (hold, payment)
+
+
+def test_runner_usesLatestCard_whenChatReplacesProposalWithoutConfirming():
+    previous = {"type": "ConfirmAction", "action_id": "old"}
+    latest = {"type": "ConfirmAction", "action_id": "new"}
+    step = {"message": "Đổi thành hai vé.", "visible_action": "latest"}
+
+    assert step_actions(step, [{"name": "propose_hold_seats"}], previous, [latest]) == (latest, latest)
 
 
 @pytest.mark.parametrize("wanted", ["PASS", "FAIL", "ERROR", "BLOCKED"])
