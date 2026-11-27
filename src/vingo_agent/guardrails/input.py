@@ -41,11 +41,8 @@ def _url(match):
 def redact(text: str) -> str:
     text = re.sub(r"https?://[^\s<>]+", _url, text, flags=re.I)
     # URL có chữ ký phải được che trọn trước email có ký tự @.
-    text = re.sub(
-        r"[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+",
-        REDACTED,
-        text,
-    )
+    # Lookbehind buộc match bắt đầu ở đầu một cụm ký tự, tránh quét lại từ mọi vị trí (ReDoS bậc hai).
+    text = re.sub(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", REDACTED, text)
     text = re.sub(r"\bBearer\s+[^\s,;]+", REDACTED, text, flags=re.I)
     text = re.sub(r"\beyJ[\w-]*\.[\w-]+\.[\w-]+", REDACTED, text)
     text = re.sub(
