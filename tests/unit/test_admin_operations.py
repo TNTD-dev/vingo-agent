@@ -85,13 +85,13 @@ async def test_A15_orders_exactQueryThroughClient_doesNotEchoContact(ctx):
         Settings(backend_url="http://backend/api/v1", agent_to_backend_key="key"), "session"
     )
     try:
-        result = await ops.admin_list_orders(ctx, q="  secret@example.test  ")
+        result = await ops.admin_list_orders(ctx, q="  ORDER123  ")
     finally:
         await ctx.deps.backend.aclose()
     assert result["ok"] is True and result["data"]["next_cursor"] == "next123"
     assert "secret" not in repr(result) and "0901234567" not in repr(result)
     request = route.calls[0].request
-    assert dict(request.url.params) == {"q": "secret@example.test", "limit": "10"}
+    assert dict(request.url.params) == {"q": "ORDER123", "limit": "10"}
     assert request.headers["Authorization"] == "Bearer session"
     assert request.headers["X-Vingo-Agent-Key"] == "key"
     block = build_block("adminListOrders", result["data"], role="ADMIN")
@@ -417,3 +417,11 @@ def test_projection_unrelatedOperation_keepsFieldSpecDispatch(monkeypatch):
     )
     with pytest.raises(ToolError, match="INVALID_TOOL_RESULT"):
         project("catalog_example", {"id": "other"}, role="ADMIN", requested={"id": "one"})
+
+
+@pytest.mark.parametrize("q", ["secret@example.test", "0901234567", "+84901234567", "[đã ẩn]", "090 123 4567"])
+async def test_KAN210_orderLookup_rejectsContactOrRedactedText_withoutBackend(ctx, q):
+    result = await ops.admin_list_orders(ctx, q=q)
+    assert result["error"]["code"] == "INVALID_ARGUMENT"
+    assert q not in repr(result)
+    ctx.deps.backend.read.assert_not_awaited()

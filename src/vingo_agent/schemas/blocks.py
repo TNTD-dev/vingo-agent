@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class EventItem(BaseModel):
@@ -125,14 +125,16 @@ class TicketList(BaseModel):
 
 
 class StatCards(BaseModel):
+    model_config = ConfigDict(serialize_by_alias=True)
+
     type: Literal["StatCards"] = "StatCards"
     metric: str
     unit: str
-    from_: datetime
+    from_: datetime = Field(validation_alias=AliasChoices("from", "from_"), serialization_alias="from")
     to: datetime
     timezone: str
     computed_at: datetime
-    value: float | None = None
+    value: int | float | None = None
     series: list[dict[str, object]] | None = None
 
 

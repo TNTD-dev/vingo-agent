@@ -14,16 +14,16 @@ def test_buyer_has17Tools_withoutAdminTools():
     assert not any(name.startswith(("get_admin", "admin_", "propose_create_event")) for name in tools)
 
 
-def test_admin_has23Tools_withSharedSeatmapName():
+def test_admin_has24Tools_withSharedSeatmapName():
     tools = tools_for(Role.ADMIN)
-    assert len(tools) == 23
+    assert len(tools) == 24
     assert tools["get_seatmap"].__name__ == "get_seatmap_admin"
 
 
-def test_totalDistinctToolNames_is37():
+def test_totalDistinctToolNames_is38():
     buyer, admin = tools_for(Role.BUYER).keys(), tools_for(Role.ADMIN).keys()
     assert buyer & admin == {"get_seatmap", "confirm_pending_action", "reject_pending_action"}
-    assert len(buyer | admin) == 37
+    assert len(buyer | admin) == 38
 
 
 def test_suggestSeats_isEnabledByDefault(monkeypatch):

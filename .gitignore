@@ -8,5 +8,6 @@ __pycache__/
 .backend/
 
 evals/reports/
+/docs/MANUAL_TEST_KAN_204.md
 /docs/MANUAL_TEST_KAN_205.md
 /docs/HANDOFF_KAN_205_DUC.md

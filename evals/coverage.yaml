@@ -365,10 +365,11 @@ tools:
 - role: ADMIN
   tool: admin_list_orders
   valid:
-  - A15
+  - tests/unit/test_admin_operations.py::test_A15_orders_exactQueryThroughClient_doesNotEchoContact
   - X06-admin_list_orders
   - X06-admin_get_order
   error:
+  - tests/unit/test_admin_operations.py::test_KAN210_orderLookup_rejectsContactOrRedactedText_withoutBackend
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: admin_get_order
@@ -525,7 +526,7 @@ guardrails:
     - tests/unit/test_turn_loop.py::test_input_rejectsInvalidText
   G3:
     allow:
-    - tests/unit/test_guardrails.py::test_T01_redactionPreservesLookupAndOrderNumbers
+    - tests/unit/test_guardrails.py::test_T01_redaction_masksPhoneEmail_keepsOrderCodeAndPrice
     deny:
     - tests/unit/test_turn_loop.py::test_T01_turn_streamsInOrderAndSavesRedactedText
   G4:

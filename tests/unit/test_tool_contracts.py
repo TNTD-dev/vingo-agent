@@ -108,6 +108,8 @@ def reference_contracts():
             args = sample(schema, schema)
             if name == "list_audit_logs":
                 args["entity"] = "order"
+            if name == "query_metric":
+                args.update(time_from="2030-01-01T00:00:00+07:00", time_to="2030-01-02T00:00:00+07:00")
             for key in ids:
                 args[key] = [str(uuid4())] if key.endswith("_ids") else str(uuid4())
             if "starts_at" in args:

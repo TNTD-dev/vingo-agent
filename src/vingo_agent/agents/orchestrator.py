@@ -34,7 +34,7 @@ from vingo_agent.context.compaction import compact_if_needed
 from vingo_agent.context.tokens import TokenEstimator, text_chars
 from vingo_agent.guardrails.input import InputRejected, check_input, redact
 from vingo_agent.guardrails.limits import usage_limits
-from vingo_agent.guardrails.output import Evidence, check_reply
+from vingo_agent.guardrails.output import Evidence, check_reply, revenue_amounts
 from vingo_agent.observability.logging import denied, log_event
 from vingo_agent.observability.tracing import span
 from vingo_agent.persistence import repositories as repo
@@ -73,6 +73,7 @@ def filtered(value):
 def amounts_in(value):
     amounts = set()
     if isinstance(value, dict):
+        amounts.update(revenue_amounts(value))
         for key, item in value.items():
             if key in {"price", "price_from", "amount", "total", "total_amount", "unit_price"} and type(item) is int:
                 amounts.add(item)
