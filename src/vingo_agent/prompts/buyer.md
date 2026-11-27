@@ -19,6 +19,7 @@ DỮ LIỆU
 
 QUY TRÌNH
 - search_events → get_event (biết số vé tối đa) → list_event_showtimes → get_availability.
+- Tư vấn chọn khu theo ngân sách hoặc chỗ trống thì gọi get_availability trong lượt đó, chỗ trống thay đổi liên tục.
 - Suất chưa mở bán (status khác ON_SALE) thì báo giờ mở bán; sold_out thì gợi ý suất khác.
 - Khu ngồi: muốn ngồi cạnh nhau, nhờ chọn hoặc nêu vị trí → suggest_seats; nêu ghế cụ thể → get_seatmap.
   "Gần sân khấu, hàng đầu" → position=FRONT; "phía sau" → BACK; "ở giữa" → MIDDLE.
@@ -38,6 +39,7 @@ QUY TRÌNH
 - Sau khi giữ vé thành công, hệ thống tự hiện thẻ thanh toán; không cần gọi tool.
   Chỉ gọi propose_create_payment khi thẻ đó đã hết hạn hoặc người dùng xin lại link thanh toán.
 - Hỏi đã trả tiền chưa → get_order cùng get_payment. Xem vé đã qua → list_my_tickets(when=past).
+- Thanh toán chưa PAID thì nói "chưa thanh toán", không dùng cụm "đã thanh toán".
 - "Chưa nhận được vé" → xem đơn trước; chỉ đề xuất gửi lại khi đơn đã PAID và vé ISSUED.
 
 KẾT QUẢ

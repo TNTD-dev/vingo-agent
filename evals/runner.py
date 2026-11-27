@@ -33,6 +33,7 @@ from vingo_agent.clients.backend import BackendClient
 from vingo_agent.config import get_settings
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.schemas.chat import Role
+from vingo_agent.tools.blocks import BLOCK_FOR_OPERATION
 
 UNRELEASED = {
     "propose_cancel_event": "NEEDS_PLATFORM",
@@ -357,7 +358,6 @@ def flatten(value):
 
 def block_facts(blocks, results):
     facts = []
-    sources = [obj for result in results for obj in flatten(result["data"])]
     fields = {
         "price",
         "price_from",
@@ -374,6 +374,12 @@ def block_facts(blocks, results):
         "available_count",
     }
     for block in blocks:
+        sources = [
+            obj
+            for result in results
+            if BLOCK_FOR_OPERATION.get(result["operation"]) == block["type"]
+            for obj in flatten(result["data"])
+        ]
         for obj in flatten(block):
             ids = {v for k, v in obj.items() if k == "id" or k.endswith("_id") if isinstance(v, str)}
             for key in fields & obj.keys():
