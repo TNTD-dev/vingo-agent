@@ -151,6 +151,10 @@ DỮ LIỆU
 
 QUY TRÌNH
 - Báo cáo: thiếu khoảng thời gian thì hỏi lại.
+- Tra sân và sơ đồ: dùng list_venues để lấy sân, rồi list_seat_layouts hoặc get_admin_layout_tree theo loại sơ đồ.
+- Tra ghế theo suất: tìm sự kiện, dùng get_admin_event lấy đúng suất và layout, rồi get_seat_layout lấy khu.
+  Dùng get_seat_layout_zone để xem hàng ghế hoặc sức chứa. Dùng get_seatmap để xem ghế theo trạng thái của suất công khai.
+  Nếu seatmap bị cắt, thu hẹp theo hàng. Trước khi khóa hoặc mở ghế, lấy trạng thái và mã ghế từ get_seatmap.
 - Tạo sân: cần tên, địa chỉ và thành phố.
 - Tạo sự kiện: cần tên và loại (FOOTBALL/CONCERT).
 - Tạo suất: cần sự kiện, layout đã công bố, giờ bắt đầu/kết thúc, giờ mở/đóng bán.
@@ -296,15 +300,15 @@ QR: model không bao giờ thấy `qr_token`. Block TicketList có nút "Xem QR"
 |---|---|---|---|---|
 | `get_admin_dashboard` | `getAdminDashboard` | `from, to, group_by?: day\|month` | `from,to,timezone,computed_at,current,previous,on_sale_showtimes,revenue,tickets` | StatCards |
 | `query_metric` | `queryMetric` | `metric: tickets_sold\|revenue\|fill_rate\|checkins, from, to, event_id?, showtime_id?` | `metric,unit,from,to,computed_at,value` | StatCards |
-| `list_venues` | `listVenues` | `q?, cursor?, limit?` | `items:[{venue_id,name,city}]` | AdminTable |
-| `get_admin_venue` | `getAdminVenue` | `venue_id` | `venue_id,name,city,status` | — |
-| `list_seat_layouts` | `listSeatLayouts` | `venue_id, cursor?, limit?` | `items:[{layout_id,name,status}]` | AdminTable |
-| `get_seat_layout` | `getSeatLayout` | `layout_id` | `layout_id,venue_id,name,status,zones:[{zone_id,name,capacity}]` | — |
-| `list_admin_events` | `listAdminEvents` | `q?, status?, cursor?, limit?` | `items:[{event_id,title,category,status}]` | AdminTable |
-| `get_admin_event` | `getAdminEvent` | `event_id` | `event_id,title,category,status,layout_id,showtimes:[{showtime_id,starts_at,status,layout_id}],price_tiers:[{price_tier_id,name,price,color}],zone_prices:[{zone_id,price_tier_id,display_name}]` | — |
+| `list_venues` | `listVenues` | `q?, cursor?, limit?` | `items:[{venue_id,name,city,address}]` | AdminTable |
+| `get_admin_venue` | `getAdminVenue` | `venue_id` | `venue_id,name,city,address` | — |
+| `list_seat_layouts` | `listSeatLayouts` | `venue_id, cursor?, limit?` | `items:[{layout_id,venue_id,name,layout_type,version}]` | AdminTable |
+| `get_seat_layout` | `getSeatLayout` | `layout_id` | `layout_id,venue_id,name,layout_type,version,zones:[{zone_id,name,code,kind,capacity}]` | — |
+| `list_admin_events` | `listAdminEvents` | `q?, status?, cursor?, limit?` | `items:[{event_id,title,category,status,visible}]` | AdminTable |
+| `get_admin_event` | `getAdminEvent` | `event_id` | `event_id,title,category,status,visible,layout_id,showtimes:[{showtime_id,starts_at,status,layout_id}],price_tiers:[{price_tier_id,name,price,color}],zone_prices:[{zone_id,price_tier_id,display_name}]` | — |
 | `admin_list_tickets` | `adminListTickets` | `showtime_id?, order_id?, code?, status?, cursor?, limit?` (ít nhất một bộ lọc) | `items:[TicketView]` (không email, SĐT, QR) | AdminTable |
-| `get_seatmap` | `getSeatmap` | như Buyer | Ghế mọi trạng thái: `seats:[{seat_id,row,number,status}]`, tối đa 60 | SeatMap |
-| `get_seat_layout_zone` | `getSeatLayoutZone` | `layout_id, zone_id` | Hàng ghế hoặc sức chứa của khu | — |
+| `get_seatmap` | `getSeatmap` | `showtime_id, zone_id, row?` | Suất thuộc sự kiện công khai. `kind, available_count, seats:[{seat_id,row,number,status}]`, tối đa 60 ghế ở mọi trạng thái | SeatMap |
+| `get_seat_layout_zone` | `getSeatLayoutZone` | `layout_id, zone_id` | `layout_id,zone_id,name,code,kind,capacity,rows:[{row_label,seats:[{seat_id,number}]}]`; khu đứng có `rows=null` | — |
 | `get_admin_layout_tree` | `getAdminLayoutTree` | `venue_id, layout_type: FOOTBALL\|CONCERT, cursor?, limit?` | Các phiên bản sơ đồ theo loại, mới trước | AdminTable |
 | `get_zone_prices_preview` | `previewZonePrices` (POST, không ghi) | `event_id, assignments:[{zone_id, price_tier_id}]` | Số SKU sẽ tạo theo khu | — |
 | `admin_list_orders` | `adminListOrders` | `status?, event_id?, showtime_id?, q? (mã đơn), cursor?, limit?` | `items:[{order_id,code,status,event_title,starts_at,total_amount,created_at}]` (không email, SĐT) | AdminTable |

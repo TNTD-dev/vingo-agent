@@ -97,6 +97,7 @@ BLOCK_FOR_OPERATION: dict[str, str] = {
     "queryMetric": "StatCards",
     "listVenues": "AdminTable",
     "listSeatLayouts": "AdminTable",
+    "getAdminLayoutTree": "AdminTable",
     "listAdminEvents": "AdminTable",
     "adminListTickets": "AdminTable",
     "adminListOrders": "AdminTable",
@@ -142,15 +143,23 @@ def _generic_block(operation: str, kind: str, data: dict[str, Any], role: str) -
     payload = dict(data)
     if kind == "SeatMap" and role == "BUYER":
         payload["seats"] = [{k: v for k, v in seat.items() if k != "status"} for seat in payload.get("seats", [])]
+    if kind == "SeatMap":
+        payload["seats"] = _string_numbers(payload["seats"])
     if kind == "AdminTable":
         table_kind = {
             "listVenues": "VENUES",
             "listSeatLayouts": "LAYOUTS",
+            "getAdminLayoutTree": "LAYOUTS",
             "listAdminEvents": "EVENTS",
             "adminListTickets": "TICKETS",
         }[operation]
         items = payload.get("items", [])
-        columns = list(items[0]) if items else []
+        columns = {
+            "listVenues": ["venue_id", "name", "city"],
+            "listSeatLayouts": ["layout_id", "name", "layout_type", "version"],
+            "getAdminLayoutTree": ["layout_id", "name", "version", "status", "overview_name"],
+            "listAdminEvents": ["event_id", "title", "category", "status"],
+        }.get(operation, list(items[0]) if items else [])
         payload = {"kind": table_kind, "columns": columns, "rows": [[row.get(key) for key in columns] for row in items]}
     if kind == "StatCards" and "from" in payload:
         payload["from_"] = payload.pop("from")

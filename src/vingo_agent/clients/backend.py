@@ -50,6 +50,8 @@ OPERATIONS: dict[str, Operation] = {
     "getAdminVenue": Operation("GET", "/admin/venues/{venue_id}"),
     "listSeatLayouts": Operation("GET", "/admin/venues/{venue_id}/seat-layouts"),
     "getSeatLayout": Operation("GET", "/admin/seat-layouts/{layout_id}"),
+    "getSeatLayoutZone": Operation("GET", "/admin/seat-layouts/{layout_id}/zones/{zone_id}"),
+    "getAdminLayoutTree": Operation("GET", "/admin/venues/{venue_id}/layout-tree"),
     "listAdminEvents": Operation("GET", "/admin/events"),
     "getAdminEvent": Operation("GET", "/admin/events/{event_id}"),
     "previewZonePrices": Operation("POST", "/admin/events/{event_id}/zone-prices/preview"),

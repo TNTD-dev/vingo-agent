@@ -256,6 +256,7 @@ tools:
 - role: ADMIN
   tool: list_venues
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_catalog_readsVenueLayoutsAndZone_withScopedRefs
   - X06-list_venues
   - X06-get_admin_venue
   - X06-list_seat_layouts
@@ -268,12 +269,14 @@ tools:
 - role: ADMIN
   tool: get_admin_venue
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_catalog_readsVenueLayoutsAndZone_withScopedRefs
   - X06-get_admin_venue
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: list_seat_layouts
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_catalog_readsVenueLayoutsAndZone_withScopedRefs
   - X06-list_seat_layouts
   - X06-get_seat_layout
   - X06-get_seat_layout_zone
@@ -282,6 +285,7 @@ tools:
 - role: ADMIN
   tool: get_seat_layout
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_chat_resolves_event_layout_zone_and_seat_refs
   - A05
   - A07
   - A08
@@ -295,6 +299,7 @@ tools:
 - role: ADMIN
   tool: list_admin_events
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_chat_resolves_event_layout_zone_and_seat_refs
   - A05
   - A06
   - A07
@@ -314,6 +319,7 @@ tools:
 - role: ADMIN
   tool: get_admin_event
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_chat_resolves_event_layout_zone_and_seat_refs
   - A05
   - A06
   - A07
@@ -338,6 +344,7 @@ tools:
 - role: ADMIN
   tool: get_seatmap
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_chat_resolves_event_layout_zone_and_seat_refs
   - A07
   - A08
   - X06-get_seatmap
@@ -346,18 +353,21 @@ tools:
 - role: ADMIN
   tool: get_seat_layout_zone
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_catalog_readsVenueLayoutsAndZone_withScopedRefs
   - X06-get_seat_layout_zone
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: get_admin_layout_tree
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_layout_tree_preserves_version_order_and_records_refs
   - X06-get_admin_layout_tree
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: get_zone_prices_preview
   valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_zone_price_preview_posts_only_the_assignment_array
   - A13
   - X06-get_zone_prices_preview
   error:
@@ -448,7 +458,8 @@ tools:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_update_venue
-  valid: []
+  valid:
+  - tests/unit/test_admin_catalog.py::test_update_venue_captures_before_and_changes
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
@@ -464,12 +475,14 @@ tools:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_update_price_tiers
-  valid: []
+  valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_event_refs_enable_proposal_without_business_write[tiers]
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_add_tier_price
-  valid: []
+  valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_event_refs_enable_proposal_without_business_write[price]
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
@@ -480,7 +493,8 @@ tools:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_update_showtime
-  valid: []
+  valid:
+  - tests/unit/test_admin_catalog_reads.py::test_admin_event_refs_enable_proposal_without_business_write[showtime]
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN

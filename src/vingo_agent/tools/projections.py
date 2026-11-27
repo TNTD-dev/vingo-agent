@@ -148,7 +148,7 @@ class _Seat(BaseModel):
     seat_id: UUID
     row: Text
     number: StrictInt
-    status: Literal["AVAILABLE", "HELD", "SOLD", "BLOCKED"] = Field(exclude=True)
+    status: Literal["AVAILABLE", "HELD", "SOLD", "BLOCKED"]
 
 
 class _SeatZone(BaseModel):
@@ -164,8 +164,16 @@ class _SeatMap(BaseModel):
     zones: list[_SeatZone]
 
 
-def _seatmap(raw: dict, scope: dict, row: str | None) -> tuple[dict, bool]:
-    seatmap = _SeatMap.model_validate(raw)
+class _AdminSeatZone(_SeatZone):
+    seats_left: Annotated[StrictInt, Field(ge=0)] | None = None
+
+
+class _AdminSeatMap(_SeatMap):
+    zones: list[_AdminSeatZone]
+
+
+def _seatmap(raw: dict, scope: dict, row: str | None, *, admin: bool = False) -> tuple[dict, bool]:
+    seatmap = (_AdminSeatMap if admin else _SeatMap).model_validate(raw)
     if "showtime_id" in scope and seatmap.showtime_id != scope["showtime_id"]:
         raise ToolError("INVALID_TOOL_RESULT")
     zones = [zone for zone in seatmap.zones if "zone_id" not in scope or zone.zone_id == scope["zone_id"]]
@@ -174,21 +182,41 @@ def _seatmap(raw: dict, scope: dict, row: str | None) -> tuple[dict, bool]:
     zone = zones[0]
     if zone.kind == "SEATED" and zone.seats is None:
         raise ToolError("INVALID_TOOL_RESULT")
+    if isinstance(zone, _AdminSeatZone) and zone.kind == "STANDING":
+        if zone.seats_left is None or zone.seats:
+            raise ToolError("INVALID_TOOL_RESULT")
+        return {
+            "showtime_id": str(seatmap.showtime_id),
+            "zone_id": str(zone.zone_id),
+            "available_count": zone.seats_left,
+            "kind": zone.kind,
+            "seats": [],
+        }, False
     price = zone.tier.price if zone.tier is not None else None
     selected_row = row.casefold() if row is not None else None
     selected_ids = scope.get("seat_ids")
     context = {"truncated": False}
     seats = []
     count = 0
+    available_count = 0
     for seat in zone.seats or []:
-        if seat.status != "AVAILABLE" or (selected_row is not None and seat.row.casefold() != selected_row):
+        if (not admin and seat.status != "AVAILABLE") or (
+            selected_row is not None and seat.row.casefold() != selected_row
+        ):
             continue
         if selected_ids is not None and seat.seat_id not in selected_ids:
             continue
         count += 1
+        available_count += seat.status == "AVAILABLE"
         if selected_ids is not None or len(seats) < SEATMAP_MAX_SEATS:
-            seats.append(seat.model_dump(mode="json", context=context) | {"price": price})
-    return {"available_count": count, "seats": seats}, count > len(seats) or context["truncated"]
+            if admin:
+                seats.append(seat.model_dump(mode="json", context=context))
+            else:
+                seats.append(seat.model_dump(mode="json", exclude={"status"}, context=context) | {"price": price})
+    data: dict[str, Any] = {"available_count": available_count, "seats": seats}
+    if admin:
+        data.update(showtime_id=str(seatmap.showtime_id), zone_id=str(zone.zone_id), kind=zone.kind)
+    return data, count > len(seats) or context["truncated"]
 
 
 class _SuggestedSeat(BaseModel):
@@ -280,16 +308,53 @@ class _AdminLayout(BaseModel):
     layout_id: UUID = Field(validation_alias="id")
     venue_id: UUID
     name: Text
+    version: Annotated[StrictInt, Field(ge=1)] | None = None
+    layout_type: Category | None = None
 
 
 class _AdminZone(BaseModel):
     zone_id: UUID = Field(validation_alias="id")
     name: Text = Field(validation_alias=AliasChoices("label", "name"))
-    capacity: StrictInt | None = None
+    code: Text
+    kind: Seating
+    capacity: Annotated[StrictInt, Field(ge=0)]
 
 
 class _AdminLayoutDetail(_AdminLayout):
     zones: list[_AdminZone]
+
+
+class _AdminLayoutSeat(BaseModel):
+    seat_id: UUID = Field(validation_alias="id")
+    number: Annotated[StrictInt, Field(ge=1)]
+
+
+class _AdminLayoutRow(BaseModel):
+    row_label: Text
+    seats: list[_AdminLayoutSeat]
+
+
+class _AdminZoneDetail(_AdminZone):
+    rows: list[_AdminLayoutRow] | None = None
+
+
+class _AdminLayoutVersion(BaseModel):
+    layout_id: UUID = Field(validation_alias="id")
+    name: Text
+    version: Annotated[StrictInt, Field(ge=1)]
+    status: Literal["DRAFT", "PUBLISHED"]
+    overview_id: UUID | None = None
+    overview_name: Text | None = None
+    overview_status: Text | None = None
+    published_at: Timestamp | None = None
+    zones: list[_AdminZone]
+
+
+class _AdminLayoutTree(BaseModel):
+    venue_id: UUID
+    layout_type: Category
+    items: list[_AdminLayoutVersion] = Field(validation_alias="data")
+    next_cursor: str | None = None
 
 
 class _AdminEvent(BaseModel):
@@ -297,6 +362,7 @@ class _AdminEvent(BaseModel):
     title: Text
     category: Category
     status: Literal["DRAFT", "PUBLISHED", "CANCELLED"]
+    visible: StrictBool | None = None
 
 
 class _AdminShowtime(BaseModel):
@@ -341,6 +407,8 @@ _ADMIN_CATALOG = {
     "getAdminVenue": _AdminVenue,
     "listSeatLayouts": _Page[_AdminLayout],
     "getSeatLayout": _AdminLayoutDetail,
+    "getSeatLayoutZone": _AdminZoneDetail,
+    "getAdminLayoutTree": _AdminLayoutTree,
     "listAdminEvents": _Page[_AdminEvent],
     "getAdminEvent": _AdminEventDetail,
     "previewZonePrices": _AdminPricePreview,
@@ -372,9 +440,21 @@ def project(
         if role != "ADMIN":
             raise ToolError("FORBIDDEN")
         return bound_result(project_reporting(operation, raw, requested))
-    if operation in _ADMIN_CATALOG and role == "ADMIN":
+    if operation in _ADMIN_CATALOG or (operation == "getSeatmap" and role == "ADMIN"):
+        if role != "ADMIN":
+            raise ToolError("FORBIDDEN")
         try:
+            if operation == "getSeatmap":
+                if not {"showtime_id", "zone_id"} <= requested.keys():
+                    raise ToolError("INVALID_TOOL_RESULT")
+                data, truncated = _seatmap(raw, requested, row, admin=True)
+                data, bounded = bound_result(data)
+                return data, truncated or bounded
             view = _ADMIN_CATALOG[operation].model_validate(raw)
+            if isinstance(view, _AdminZoneDetail) and (
+                (view.kind == "SEATED" and view.rows is None) or (view.kind == "STANDING" and view.rows)
+            ):
+                raise ToolError("INVALID_TOOL_RESULT")
             records = view.items if isinstance(view, _Page) else [view]
             if any(str(getattr(item, key, None)) != str(value) for item in records for key, value in requested.items()):
                 raise ToolError("INVALID_TOOL_RESULT")
