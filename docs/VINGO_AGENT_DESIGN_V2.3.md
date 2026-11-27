@@ -207,7 +207,7 @@ Text đã stream không bị thu hồi; block và notice là nguồn đúng. Đ�
 | PaymentLink | `order_id,payment_url,expires_at` (chỉ từ kết quả thực thi, không vào model) |
 | TicketList | `items:[{ticket_id,code,status,event_title,starts_at,zone,row?,number?}]` |
 | StatCards | `metric,unit,from,to,timezone,computed_at,value?,series?` |
-| AdminTable | `kind: EVENTS\|VENUES\|LAYOUTS\|TICKETS, columns, rows` |
+| AdminTable | `kind: EVENTS\|VENUES\|LAYOUTS\|TICKETS\|ORDERS\|CHECKINS\|AUDIT_LOGS, columns, rows` |
 | ConfirmAction | Mục 7 |
 | ActionResult | `action_id,operation,status: SUCCEEDED\|FAILED\|UNKNOWN,code?,message` |
 

@@ -23,6 +23,10 @@ BLOCK_FOR_OPERATION: dict[str, str] = {
     "listSeatLayouts": "AdminTable",
     "listAdminEvents": "AdminTable",
     "adminListTickets": "AdminTable",
+    "adminListOrders": "AdminTable",
+    "adminGetOrder": "OrderSummary",
+    "listShowtimeCheckins": "AdminTable",
+    "listAuditLogs": "AdminTable",
 }
 
 
@@ -84,6 +88,8 @@ def build_block(operation: str, data: dict[str, Any], *, role: str) -> BaseModel
     if kind == "PaymentStatus" and data.get("status") == "NONE":
         return None
     try:
+        if operation in (*_OPERATIONS_TABLES, "adminGetOrder"):
+            return _build_operations_block(operation, data, role)
         if operation in ("getAdminDashboard", "queryMetric"):
             return _build_reporting_block(operation, data, role)
         if role == "BUYER":
@@ -113,3 +119,34 @@ def _build_reporting_block(operation: str, data: dict, role: str) -> BaseModel |
     if role != "ADMIN":
         return None
     return blocks.StatCards.model_validate(_reporting_card(operation, data))
+
+
+_OPERATIONS_TABLES = {
+    "adminListOrders": (
+        "ORDERS",
+        ("order_id", "code", "status", "event_title", "starts_at", "total_amount", "created_at", "message"),
+    ),
+    "adminListTickets": (
+        "TICKETS",
+        ("ticket_id", "code", "status", "event_title", "starts_at", "zone", "row", "number"),
+    ),
+    "listShowtimeCheckins": ("CHECKINS", ("ticket_code", "result", "at")),
+    "listAuditLogs": ("AUDIT_LOGS", ("action", "entity", "entity_id", "actor_name", "via_agent", "at")),
+}
+
+
+def _build_operations_block(operation: str, data: dict, role: str) -> BaseModel | None:
+    from vingo_agent.schemas import blocks
+
+    if role != "ADMIN":
+        return None
+    if operation == "adminGetOrder" and data["status"] != "NEEDS_REVIEW":
+        return blocks.OrderSummary.model_validate(data)
+    if operation == "adminGetOrder":
+        kind, columns, items = "ORDERS", ("code", "status", "message"), [data]
+    else:
+        kind, columns = _OPERATIONS_TABLES[operation]
+        items = data["items"]
+    return blocks.AdminTable(
+        kind=kind, columns=list(columns), rows=[[row.get(key) for key in columns] for row in items]
+    )

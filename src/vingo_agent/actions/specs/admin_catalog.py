@@ -34,11 +34,19 @@ for operation in CATALOG_OPERATIONS:
         operation,
         OperationSpec(
             backend_operation=BACKEND_OPERATION[operation],
-            tool_name="propose_" + operation.lower(),
+            tool_name="propose_admin_resend_ticket"
+            if operation == Operation.ADMIN_RESEND_TICKET
+            else "propose_" + operation.lower(),
             role="ADMIN",
             project=_project(field),
             result_refs={field: field.removesuffix("_id").upper()} if field else {},
             safe_retry=operation in CATALOG_RETRY,
             lookup_mode=LookupMode.RETRY if operation in CATALOG_RETRY else LookupMode.NONE,
+            messages={
+                "SUCCEEDED": "Đã xếp hàng yêu cầu gửi lại vé.",
+                "UNKNOWN": "Vé có thể đã gửi. Vui lòng kiểm tra Admin Portal; không tự gửi lại.",
+            }
+            if operation == Operation.ADMIN_RESEND_TICKET
+            else {},
         ),
     )

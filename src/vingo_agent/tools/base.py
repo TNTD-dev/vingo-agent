@@ -38,6 +38,7 @@ class TurnDeps:
     proposals_created: int = 0
     blocks: list[BaseModel] = field(default_factory=list)
     notices: list[dict[str, str]] = field(default_factory=list)
+    admin_ticket_codes: dict[UUID, str] = field(default_factory=dict)
 
 
 class ToolArgs(BaseModel):
