@@ -28,6 +28,7 @@ class Operation:
     path: str  # template, ví dụ "/showtimes/{showtime_id}/holds"
     write: bool = False
     idempotent_key: bool = False  # gửi Idempotency-Key
+    staging: bool = False  # chỉ tạo hoặc sửa nháp nhập sơ đồ
 
 
 OPERATIONS: dict[str, Operation] = {
@@ -55,6 +56,10 @@ OPERATIONS: dict[str, Operation] = {
     "listAdminEvents": Operation("GET", "/admin/events"),
     "getAdminEvent": Operation("GET", "/admin/events/{event_id}"),
     "previewZonePrices": Operation("POST", "/admin/events/{event_id}/zone-prices/preview"),
+    "previewVenueImport": Operation("POST", "/admin/venue-imports/{session_id}/preview"),
+    "createVenueImport": Operation("POST", "/admin/venue-imports", staging=True),
+    "updateVenueImport": Operation("PATCH", "/admin/venue-imports/{session_id}", staging=True),
+    "uploadVenueImportFiles": Operation("POST", "/admin/venue-imports/{session_id}/files", staging=True),
     "adminListTickets": Operation("GET", "/admin/tickets"),
     "adminListOrders": Operation("GET", "/admin/orders"),
     "adminGetOrder": Operation("GET", "/admin/orders/{order_id}"),
@@ -79,6 +84,10 @@ OPERATIONS: dict[str, Operation] = {
     "putPriceTiers": Operation("PUT", "/admin/events/{event_id}/price-tiers", write=True),
     "addSkuPrice": Operation("POST", "/admin/events/{event_id}/price-tiers/{tier_id}/prices", write=True),
     "putZonePrices": Operation("PUT", "/admin/events/{event_id}/zone-prices", write=True),
+    "cancelEvent": Operation("POST", "/admin/events/{event_id}/cancel", write=True),
+    "cancelShowtime": Operation("POST", "/admin/showtimes/{showtime_id}/cancel", write=True),
+    "completeVenueImport": Operation("POST", "/admin/venue-imports/{session_id}/complete", write=True),
+    "updateEventVisibility": Operation("PUT", "/admin/events/{event_id}/visibility", write=True),
 }
 
 
@@ -94,13 +103,16 @@ class BackendClient:
         *,
         path: dict[str, Any] | None = None,
         query: dict[str, Any] | None = None,
-        body: list[dict[str, Any]] | None = None,
+        body: dict[str, Any] | list[dict[str, Any]] | None = None,
+        _draft: bool = False,
+        _files: list[tuple[str, tuple[str, bytes, str]]] | None = None,
+        _form: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Gọi operation đọc; lỗi chuyển thành ToolError theo mã backend (ProblemDetail.code)."""
         from vingo_agent.tools.base import ToolError
 
         spec = OPERATIONS.get(operation)
-        if spec is None or spec.write:
+        if spec is None or spec.write or spec.staging != _draft:
             raise ToolError("INVALID_ARGUMENT")
         fields = {name for _, name, _, _ in Formatter().parse(spec.path) if name}
         if set(path or {}) != fields:
@@ -110,7 +122,7 @@ class BackendClient:
         except (ValueError, TypeError, AttributeError):
             raise ToolError("INVALID_ARGUMENT") from None
         url = self._settings.backend_url.rstrip("/") + spec.path.format(**safe_path)
-        for attempt in range(3):
+        for attempt in range(1 if _draft else 3):
             try:
                 response = await self._request(
                     operation,
@@ -118,6 +130,7 @@ class BackendClient:
                     url,
                     params=query,
                     json=body,
+                    **({"files": _files, "data": _form} if _files is not None else {}),
                     headers={
                         "Authorization": f"Bearer {self._token}",
                         "X-Vingo-Agent-Key": self._settings.agent_to_backend_key,
@@ -127,7 +140,7 @@ class BackendClient:
             except httpx.RequestError:
                 raise ToolError("BACKEND_UNAVAILABLE", retryable=True) from None
             retryable = response.status_code == 429 or response.status_code >= 500
-            if retryable and attempt < 2:
+            if retryable and not _draft and attempt < 2:
                 delay = 0.25 * (2**attempt)
                 retry_after = response.headers.get("Retry-After")
                 if retry_after:
@@ -162,6 +175,10 @@ class BackendClient:
             except ValueError:
                 raise ToolError("INVALID_TOOL_RESULT") from None
         raise ToolError("BACKEND_UNAVAILABLE", retryable=True)
+
+    async def stage_import(self, operation: str, *, path=None, body=None, files=None, form=None) -> dict[str, Any]:
+        """Chuẩn bị phiên nhập. Lệnh hoàn tất chỉ qua write sau xác nhận."""
+        return await self.read(operation, path=path, body=body, _draft=True, _files=files, _form=form)
 
     async def write(
         self,

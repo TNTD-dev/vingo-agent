@@ -162,6 +162,8 @@ QUY TRÌNH
 - Sửa: luôn đọc bản hiện tại trước, đề xuất chỉ chứa trường thay đổi; thẻ hiện trước/sau.
 - Giá: đọc cấu hình qua get_admin_event. Khi thay hạng vé hoặc gán khu, gửi toàn bộ danh sách muốn giữ. Gán hạng cho khu phải gọi get_zone_prices_preview với cùng danh sách trong lượt đó trước khi đề xuất.
 - Huỷ sự kiện/suất, khóa ghế, ẩn sự kiện cần lý do. Huỷ phải bấm nút và gõ lại tên trên thẻ.
+- Huỷ suất: đọc đúng sự kiện và suất, rồi dùng propose_cancel_showtime. Thẻ yêu cầu gõ giờ suất. Huỷ sự kiện dùng propose_cancel_event và gõ tên sự kiện.
+- Nhập sơ đồ: dùng upload_ids do giao diện đính kèm, hỏi đủ tên và loại sơ đồ. Sân mới cần tên, địa chỉ, thành phố, SVG nền và SVG layout. Sân đã có nền có thể dùng overview_id từ cây sơ đồ cùng sân.
 - Đơn của khách: chỉ nêu mã đơn, trạng thái, tổng tiền; không đọc to email/SĐT.
 - Tin nhắn có `[đã ẩn]` ở chỗ SĐT/email: không đoán; yêu cầu admin đưa mã đơn hoặc dùng ô tìm kiếm trên trang admin để tra theo SĐT/email.
 - propose_* tối đa một lần mỗi lượt. Admin đồng ý rõ ràng với thẻ đang hiện → confirm_pending_action();
@@ -340,15 +342,15 @@ Chưa có metric tỷ lệ chuyển đổi trong backend; biểu đồ và xuấ
 | `propose_admin_resend_ticket` | `ticket_id` | Vé ISSUED | `adminResendTicket` | 10 phút |
 | `propose_create_venue` | `name, address, city` | — | `createVenue` | 10 phút |
 | `propose_update_venue` | `venue_id` + trường đổi trong `name, address, city, district, lat, lng, rules` | Đọc `getAdminVenue`; snapshot `before` | `updateVenue` | 10 phút |
-| `propose_seat_layout` | `venue_id?` (thêm vào sân có sẵn) hoặc thông tin sân mới, `layout_type`, file SVG đã tải lên | Phiên Venue Import: tạo phiên → tải SVG → preview; thẻ hiện kết quả preview và `revision` | `completeVenueImport` (gọi lại trả cùng ID) | 30 phút |
+| `propose_seat_layout` | `venue_id?`, `overview_id?` hoặc thông tin sân mới, `layout_name`, `layout_type`, `upload_ids` | Phiên Venue Import: tạo phiên → tải SVG → lưu metadata → preview. Thẻ hiện số khu và số ghế, snapshot lưu revision | `completeVenueImport` (gọi lại trả cùng ID) | 30 phút |
 | `propose_update_event` | `event_id` + trường đổi trong `EventPatchInput` | Đọc `getAdminEvent`; event DRAFT/PUBLISHED; đổi `seat_layout_id` chỉ khi DRAFT và không còn suất dùng layout cũ; snapshot `before` | `updateEvent` | 10 phút |
 | `propose_update_price_tiers` | `event_id, tiers:[{id?, name, price, color?}]` (toàn bộ danh sách) | Đọc hạng hiện có; thẻ hiện thêm/sửa/xoá; snapshot `before` | `putPriceTiers` | 10 phút |
 | `propose_add_tier_price` | `event_id, tier_id, price, effective_from?, reason?` | Event chưa CANCELLED; snapshot giá hiệu lực và ID các phiên bản giá hiện có | `addSkuPrice` | 10 phút |
 | `propose_update_zone_prices` | `event_id, assignments:[{zone_id, price_tier_id, display_name?}]` (toàn bộ danh sách) | Đã gọi `get_zone_prices_preview` cho cùng sự kiện và danh sách trong turn; snapshot `before` và layout | `putZonePrices` | 10 phút |
 | `propose_update_showtime` | `event_id, showtime_id` + trường đổi trong `seat_layout_id, starts_at, ends_at, sale_opens_at, sale_closes_at` | Đọc suất qua `getAdminEvent`; suất DRAFT hoặc SCHEDULED chưa tới `sale_opens_at`; snapshot `before` | `updateShowtime` | 10 phút |
-| `propose_cancel_showtime` | `showtime_id, reason (≥3 ký tự)` | Suất chưa mở bán; thẻ cần gõ lại giờ suất | `cancelShowtime` | 10 phút |
+| `propose_cancel_showtime` | `event_id, showtime_id, reason (≥3 ký tự)` | Suất chưa mở bán; thẻ cần gõ lại giờ suất | `cancelShowtime` | 10 phút |
 | `propose_cancel_event` | `event_id, reason (≥3 ký tự)` | Chưa suất nào ON_SALE; thẻ nêu số suất bị ảnh hưởng, cần gõ lại tên sự kiện | `cancelEvent` | 10 phút |
-| `propose_update_event_visibility` | `event_id, visible, reason` | Event PUBLISHED | `PUT /admin/events/{id}/visibility` (**chưa có trong contract**) | 10 phút |
+| `propose_update_event_visibility` | `event_id, visible, reason` | Event PUBLISHED | `PUT /admin/events/{event_id}/visibility` | 10 phút |
 
 Quy tắc:
 - Mỗi turn tạo tối đa một đề xuất; tool call đề xuất thứ hai trong turn → `PROPOSAL_ALREADY_CREATED`.
@@ -378,9 +380,8 @@ Mọi tool đều được code và test. Tool chưa READY nằm trong `AGENT_DI
 |---|---|---|
 | **READY** | Toàn bộ tool đọc Buyer/Admin, 4 đề xuất Buyer, `propose_create_event`, `propose_create_showtime`, `propose_publish_event`, `propose_block_seats`, `propose_unblock_seats`, `propose_admin_resend_ticket`, `propose_create_venue`, 2 tool quyết định | — |
 | **READY, kiểm `before`** | `propose_update_venue`, `propose_update_event`, `propose_update_showtime`, `propose_update_price_tiers`, `propose_add_tier_price`, `propose_update_zone_prices` | Eval A12–A14 đạt. Nên có version/ETag ở backend để đóng khoảng hở (mục 11) |
-| **NEEDS_PLATFORM** | `propose_cancel_event`, `propose_cancel_showtime` | Xác nhận có `confirm_phrase` trên web + agent |
-| **NEEDS_PLATFORM** | `propose_seat_layout`, poster tải từ máy | `POST /chat/uploads` (backend proxy) + web chọn file |
-| **NEEDS_BACKEND** | `propose_update_event_visibility` | Endpoint `PUT /admin/events/{id}/visibility` vào contract |
+| **BẬT THEO CẤU HÌNH** | `propose_cancel_event`, `propose_cancel_showtime`, `propose_seat_layout`, `propose_update_event_visibility` | Copilot V2.3, route upload và backend visibility đã chạy; bật `AGENT_ADMIN_WORKFLOWS_ENABLED` |
+| **NEEDS_PLATFORM** | poster tải từ máy | Luồng upload và cập nhật poster trong chat |
 
 ## 5. Quyền và an toàn (guardrails)
 
@@ -657,7 +658,7 @@ EXECUTION `UNKNOWN` được tra lại khi user mở lại hội thoại (`GET /
 | `GET /chat/conversations/{id}` | — | Lịch sử đã lọc (tin nhắn, block), đề xuất PENDING |
 | `POST /chat/conversations/{id}/messages` | `{command_id, text, selection?, visible_action?: {action_id, version}}` | SSE |
 | `POST /chat/actions/{action_id}/confirm` | `{command_id, version, buyer?, confirm_phrase?}` | SSE |
-| `POST /chat/uploads` | multipart: một file SVG hoặc ảnh poster (≤10 MiB) | `{upload_id, kind, size}`; agent dùng `upload_id` trong đề xuất (NEEDS_PLATFORM) |
+| `POST /chat/uploads` | multipart: một file SVG (≤10 MiB), Admin | `{upload_id, kind, size}`; gửi `upload_ids` kèm tin nhắn để agent lấy file trong đề xuất |
 | `POST /chat/actions/{action_id}/reject` | `{command_id, version}` | `{state}` |
 | `GET /chat/turns/{turn_id}` | — | `{state, text, blocks}` |
 
@@ -950,7 +951,7 @@ vingo-agent/
 │   ├── context/                 # builder, compaction
 │   ├── actions/                 # proposals, confirm, execution, lookup
 │   ├── clients/backend.py       # danh sách operation cố định, token user + agent key
-│   ├── persistence/             # db, models (7 bảng), repositories
+│   ├── persistence/             # db, models, repositories, upload SVG tạm
 │   ├── schemas/                 # errors, blocks, chat
 │   └── observability/           # logging (allowlist field), tracing
 ├── evals/                       # fixtures/seed.md, cases/*.yaml (80 case mục 8), runner.py

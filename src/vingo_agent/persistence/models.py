@@ -1,4 +1,4 @@
-"""7 bảng schema `agent` (V2.3 mục 6.1). Các revision Alembic là nguồn của DDL; file này phải khớp."""
+"""Mapping của schema `agent`. Các revision Alembic là nguồn của DDL; file này phải khớp."""
 
 from sqlalchemy import (
     BigInteger,
@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     PrimaryKeyConstraint,
     String,
@@ -152,6 +153,17 @@ pending_action = Table(
         unique=True,
         postgresql_where=text("state = 'PENDING'"),
     ),
+)
+
+chat_upload = Table(
+    "chat_upload",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True, server_default=UUIDV7),
+    Column("owner_id", UUID(as_uuid=True), nullable=False),
+    Column("content", LargeBinary, nullable=False),
+    Column("expires_at", TS, nullable=False),
+    Index("ix_chat_upload_owner_id", "owner_id"),
+    Index("ix_chat_upload_expires_at", "expires_at"),
 )
 
 execution = Table(

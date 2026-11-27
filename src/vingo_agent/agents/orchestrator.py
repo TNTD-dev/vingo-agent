@@ -144,7 +144,7 @@ async def run_turn(*, conversation_id, request, principal):
             await repo.release_turn(conversation_id, turn_id)
         raise HTTPException(exc.status_code, exc.code) from exc
     # Xóa tham chiếu tới input thô trước khi tạo iterator sống qua toàn bộ stream.
-    selection, visible_action = request.selection, request.visible_action
+    selection, visible_action, upload_ids = request.selection, request.visible_action, request.upload_ids
     del request
 
     async def stream():
@@ -154,7 +154,10 @@ async def run_turn(*, conversation_id, request, principal):
         ) as trace:
             seq, final_text, state, code = 0, "", "FAILED", "BACKEND_UNAVAILABLE"
             try:
-                blocks, messages, amounts = {}, [{"kind": "USER", "content": {"text": text}}], set()
+                user_content = {"text": text}
+                if upload_ids:
+                    user_content["upload_ids"] = [str(value) for value in upload_ids]
+                blocks, messages, amounts = {}, [{"kind": "USER", "content": user_content}], set()
                 notices = []
                 succeeded = set()
                 model_version = None
@@ -256,6 +259,16 @@ async def run_turn(*, conversation_id, request, principal):
                             if row["kind"] == "TOOL_RESULT":
                                 if row["content"].get("result", {}).get("ok") is True:
                                     amounts.update(amounts_in(row["content"]))
+                        if upload_ids:
+                            from pydantic_ai.messages import UserPromptPart
+
+                            history.append(
+                                ModelRequest(
+                                    parts=[
+                                        UserPromptPart(json.dumps({"upload_ids": [str(value) for value in upload_ids]}))
+                                    ]
+                                )
+                            )
                         if selection:
                             kind = "SEAT" if selection.type.value == "SEATS" else selection.type.value
                             valid = [

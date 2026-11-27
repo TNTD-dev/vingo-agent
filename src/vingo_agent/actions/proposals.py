@@ -25,6 +25,10 @@ class Operation(StrEnum):
     UPDATE_PRICE_TIERS = "UPDATE_PRICE_TIERS"
     ADD_TIER_PRICE = "ADD_TIER_PRICE"
     UPDATE_ZONE_PRICES = "UPDATE_ZONE_PRICES"
+    CANCEL_EVENT = "CANCEL_EVENT"
+    CANCEL_SHOWTIME = "CANCEL_SHOWTIME"
+    SEAT_LAYOUT = "SEAT_LAYOUT"
+    UPDATE_EVENT_VISIBILITY = "UPDATE_EVENT_VISIBILITY"
 
 
 # Operation → operationId backend thực thi.
@@ -46,8 +50,15 @@ BACKEND_OPERATION: dict[Operation, str] = {
     Operation.UPDATE_PRICE_TIERS: "putPriceTiers",
     Operation.ADD_TIER_PRICE: "addSkuPrice",
     Operation.UPDATE_ZONE_PRICES: "putZonePrices",
+    Operation.CANCEL_EVENT: "cancelEvent",
+    Operation.CANCEL_SHOWTIME: "cancelShowtime",
+    Operation.SEAT_LAYOUT: "completeVenueImport",
+    Operation.UPDATE_EVENT_VISIBILITY: "updateEventVisibility",
 }
 
+ADMIN_WORKFLOWS = frozenset(
+    {Operation.CANCEL_EVENT, Operation.CANCEL_SHOWTIME, Operation.SEAT_LAYOUT, Operation.UPDATE_EVENT_VISIBILITY}
+)
 NEEDS_BUYER_FORM = frozenset({Operation.CREATE_PAYMENT})
 
 
@@ -66,7 +77,7 @@ async def create(*, conversation_id, actor_id, role, operation: str, payload, di
         HOLD_TTL
         if operation == Operation.HOLD_SEATS
         else timedelta(minutes=30)
-        if operation == "SEAT_LAYOUT"
+        if operation == Operation.SEAT_LAYOUT
         else DEFAULT_TTL
     )
     if operation in {Operation.CREATE_PAYMENT, Operation.CANCEL_ORDER} and expires_at is None:

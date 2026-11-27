@@ -464,7 +464,8 @@ tools:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_seat_layout
-  valid: []
+  valid:
+  - tests/unit/test_admin_workflows.py::test_layoutStagesFilesAndPreviewBeforeConfirm
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
@@ -499,18 +500,21 @@ tools:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_cancel_showtime
-  valid: []
+  valid:
+  - tests/unit/test_admin_workflows.py::test_propose_cancel_requiresExactPhraseAndSavesBefore[True]
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_cancel_event
   valid:
+  - tests/unit/test_admin_workflows.py::test_propose_cancel_requiresExactPhraseAndSavesBefore[False]
   - A14
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN
   tool: propose_update_event_visibility
-  valid: []
+  valid:
+  - tests/unit/test_admin_workflows.py::test_propose_visibility_snapshotsCurrentPublicState
   error:
   - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
 - role: ADMIN

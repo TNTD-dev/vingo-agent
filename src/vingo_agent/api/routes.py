@@ -4,7 +4,7 @@ import json
 from hashlib import sha256
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from vingo_agent.actions.confirm import ConfirmedVia, confirm, reject
@@ -12,9 +12,11 @@ from vingo_agent.actions.lookup import resolve
 from vingo_agent.agents.orchestrator import authorize, run_turn
 from vingo_agent.api.auth import CurrentPrincipal
 from vingo_agent.api.sse import EventType, StreamEvent
+from vingo_agent.api.uploads import svg_upload
 from vingo_agent.clients.backend import BackendClient
 from vingo_agent.config import get_settings
 from vingo_agent.persistence import repositories as repo
+from vingo_agent.persistence.uploads import get_uploads, save_upload
 from vingo_agent.schemas.blocks import ConfirmAction
 from vingo_agent.schemas.chat import (
     ConfirmRequest,
@@ -22,12 +24,24 @@ from vingo_agent.schemas.chat import (
     CreateConversationResponse,
     RejectRequest,
     RejectResponse,
+    Role,
     SendMessageRequest,
     TurnView,
 )
 from vingo_agent.tools.base import ToolError
 
 router = APIRouter(prefix="/internal/v1")
+
+
+@router.post("/uploads")
+async def upload_chat_file(request: Request, principal: CurrentPrincipal):
+    if principal.role != Role.ADMIN or not get_settings().agent_admin_workflows_enabled:
+        raise HTTPException(403, "FORBIDDEN")
+    content = await svg_upload(request)
+    upload_id = await save_upload(principal.user_id, content)
+    if upload_id is None:
+        raise HTTPException(429, "RATE_LIMITED")
+    return {"upload_id": upload_id, "kind": "SVG", "size": len(content)}
 
 
 @router.post("/conversations", status_code=201)
@@ -69,6 +83,17 @@ async def get_conversation(conversation_id: UUID, principal: CurrentPrincipal) -
 @router.post("/conversations/{conversation_id}/messages")
 async def send_message(conversation_id: UUID, body: SendMessageRequest, principal: CurrentPrincipal):
     """Chạy một turn, trả SSE (text/event-stream). Turn đang chạy → 409 TURN_IN_PROGRESS."""
+    if body.upload_ids:
+        if principal.role != Role.ADMIN or not get_settings().agent_admin_workflows_enabled:
+            raise HTTPException(403, "FORBIDDEN")
+        await authorize(conversation_id, principal)
+        upload_ids = set(body.upload_ids)
+        if (
+            len(upload_ids) != len(body.upload_ids)
+            or set(await get_uploads(principal.user_id, upload_ids)) != upload_ids
+        ):
+            raise HTTPException(400, "VALIDATION_ERROR")
+        await repo.add_refs(conversation_id, "UPLOAD", body.upload_ids)
     stream = await run_turn(conversation_id=conversation_id, request=body, principal=principal)
 
     async def encoded():

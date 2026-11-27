@@ -16,6 +16,7 @@ from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from vingo_agent.actions import proposals as pending
 from vingo_agent.actions.proposals import Operation
 from vingo_agent.actions.specs.admin_updates import FOOTBALL_FIELDS, SHOWTIME_TIMES, read_target, snapshot, venue_city
+from vingo_agent.config import get_settings
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.schemas.blocks import ConfirmAction
 from vingo_agent.schemas.chat import Role
@@ -260,14 +261,18 @@ def _admin_proposal(operation: Operation):
             deps = ctx.deps
             backend_operation = pending.BACKEND_OPERATION[operation]
             try:
-                if deps.principal.role != Role.ADMIN:
+                if deps.principal.role != Role.ADMIN or (
+                    operation in pending.ADMIN_WORKFLOWS and not get_settings().agent_admin_workflows_enabled
+                ):
                     raise ToolError("FORBIDDEN")
                 path, body, display, *snapshot_fields = await tool(ctx, *args, **kwargs)
                 payload = {"path": path, "body": body}
                 if snapshot_fields:
                     payload.update(snapshot_fields[0])
                 now = datetime.now(UTC)
-                expires_at = now + pending.DEFAULT_TTL
+                expires_at = now + (
+                    timedelta(minutes=30) if operation == Operation.SEAT_LAYOUT else pending.DEFAULT_TTL
+                )
                 action_id, version = await pending.create(
                     conversation_id=deps.conversation_id,
                     turn_id=deps.turn_id,
@@ -287,7 +292,8 @@ def _admin_proposal(operation: Operation):
                     operation=operation,
                     expires_at=expires_at,
                     display=display,
-                    rows=catalog_change_rows(display) if snapshot_fields else None,
+                    rows=catalog_change_rows(display) if "changes" in display else display.get("rows"),
+                    confirm_phrase=display.get("confirm_phrase"),
                 )
             )
             return ok(

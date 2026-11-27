@@ -20,7 +20,7 @@ flowchart LR
 - **Dịch vụ nội bộ.** Chỉ module `chat` của vingo-backend gọi vào. Web không gọi trực tiếp.
 - **Backend là nguồn sự thật.** Agent đọc và ghi nghiệp vụ qua REST `/api/v1` bằng session token của user, nên backend kiểm quyền mọi lần gọi.
 - **Model không ghi nghiệp vụ.** Tool ghi chỉ tạo *đề xuất*. User xác nhận bằng nút trên thẻ hoặc nhắn đồng ý thì code thực thi đúng payload đã lưu, không qua model.
-- **Lưu trữ riêng.** Hội thoại, đề xuất và lịch sử thực thi nằm ở schema Postgres `agent` (7 bảng), không đụng bảng nghiệp vụ.
+- **Lưu trữ riêng.** Hội thoại, đề xuất, lịch sử thực thi và file SVG tạm nằm ở schema Postgres `agent`.
 - **Model dự phòng.** GPT-6 Luna lỗi (timeout, 5xx, 429) trước khi trả chữ thì tự chuyển sang DeepSeek V4.1 Flash.
 
 ## Yêu cầu
@@ -48,6 +48,7 @@ flowchart LR
    | `OPENAI_API_KEY` | Key cho model chính `openai:gpt-6-luna` |
    | `DEEPSEEK_API_KEY` | Key cho model dự phòng `deepseek:deepseek-flash`; để trống thì chỉ dùng model chính |
    | `DATABASE_URL` | Mặc định trỏ Postgres local, role `vingo_agent` |
+   | `AGENT_ADMIN_WORKFLOWS_ENABLED` | Bật KAN-203 khi backend có endpoint visibility và web chạy Copilot V2.3 |
 
    Các biến còn lại (giới hạn turn, kill switch `AGENT_DISABLED_TOOLS`) có giá trị mặc định, xem `.env.example`.
 
@@ -79,6 +80,7 @@ Mọi route dưới `/internal/v1` yêu cầu header `X-Agent-Service-Key`, `X-V
 | `POST /conversations` | Tạo hội thoại |
 | `GET /conversations/{id}` | Lịch sử và đề xuất đang chờ |
 | `POST /conversations/{id}/messages` | Gửi tin, nhận SSE |
+| `POST /uploads` | Admin tải một SVG tối đa 10 MiB, nhận `upload_id` có hiệu lực một giờ |
 | `POST /actions/{id}/confirm` | Xác nhận bằng nút, nhận SSE |
 | `POST /actions/{id}/reject` | Từ chối đề xuất |
 | `GET /turns/{id}` | Lấy lại kết quả turn khi SSE đứt |

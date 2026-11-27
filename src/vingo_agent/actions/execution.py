@@ -10,6 +10,7 @@ import httpx
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from vingo_agent.actions.proposals import ADMIN_WORKFLOWS
 from vingo_agent.actions.registry import LookupMode, get_spec
 from vingo_agent.observability.logging import log_event
 from vingo_agent.observability.tracing import span
@@ -31,7 +32,10 @@ async def execute(operation, *, backend, payload, idempotency_key, buyer=None, l
     spec = get_spec(operation)
     from vingo_agent.config import get_settings
 
-    if spec.tool_name in get_settings().agent_disabled_tools:
+    settings = get_settings()
+    if spec.tool_name in settings.agent_disabled_tools or (
+        operation in ADMIN_WORKFLOWS and not settings.agent_admin_workflows_enabled
+    ):
         # Tra lại: lần gửi trước có thể đã ghi → giữ UNKNOWN, không gửi thêm.
         # Lần gửi đầu: chưa gửi gì → FAILED, để lần tra sau không gửi thật một thao tác đã bị tắt.
         return ("UNKNOWN", "EXECUTION_UNKNOWN", {}) if lookup_only else ("FAILED", "FORBIDDEN", {})
