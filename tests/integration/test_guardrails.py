@@ -18,6 +18,7 @@ from vingo_agent.api.app import create_app
 from vingo_agent.guardrails.result import FieldSpec
 from vingo_agent.persistence import models as m
 from vingo_agent.persistence import repositories as repo
+from vingo_agent.tools import blocks
 from vingo_agent.tools.base import TurnDeps, ok, record_refs
 from vingo_agent.tools.projections import SPECS, project
 
@@ -60,6 +61,9 @@ async def test_T06_resultValidation_precedesRefsBlocksAndPriceEvidence(database_
         raw = await ctx.deps.backend.read("searchEvents")
         data, truncated = project("searchEvents", raw, role="BUYER")
         await record_refs(ctx.deps, "EVENT", [UUID(item["event_id"]) for item in data["items"]])
+        block = blocks.build_block("searchEvents", data, role="BUYER")
+        if block is not None:
+            ctx.deps.blocks.append(block)
         return ok("searchEvents", data, truncated=truncated, observed_at=datetime.now(UTC))
 
     async def respond(messages, info):
