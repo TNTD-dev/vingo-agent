@@ -33,3 +33,23 @@ def check_reply(text: str, evidence: Evidence) -> list[str]:
     if any(int(re.sub(r"\D", "", amount)) not in evidence.amounts for amount in amounts):
         warnings.append("Giá chính xác xem trên thẻ.")
     return warnings
+
+
+def revenue_amounts(value) -> set[int]:
+    """Bằng chứng G9 chỉ từ doanh thu đã lọc; count/percent không phải số tiền."""
+    if type(value) is not dict:
+        return set()
+    meta = value.get("meta")
+    if type(meta) is not dict:
+        return set()
+    operation = meta.get("operation")
+    data = value.get("data")
+    if value.get("ok") is not True or operation not in {"getAdminDashboard", "queryMetric"} or type(data) is not dict:
+        return set()
+    values = []
+    if operation == "queryMetric" and data.get("metric") == "revenue" and data.get("unit") == "VND":
+        values.append(data.get("value"))
+    elif operation == "getAdminDashboard":
+        values.extend(data.get(period, {}).get("revenue") for period in ("current", "previous"))
+        values.extend(point.get("value") for point in data.get("revenue", {}).get("series", []))
+    return {amount for amount in values if type(amount) is int and amount >= 0}

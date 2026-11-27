@@ -311,7 +311,7 @@ QR: model không bao giờ thấy `qr_token`. Block TicketList có nút "Xem QR"
 | `admin_get_order` | `adminGetOrder` | `order_id` | `OrderView` + `payments:[{status,amount,last_response_code}]` + `history:[{status,at}]` (không buyer contact, không `payment_url`) | OrderSummary |
 | `list_showtime_checkins` | `listShowtimeCheckins` | `showtime_id, cursor?, limit?` | Lần quét: `ticket_code, result, at` | AdminTable |
 | `list_audit_logs` | `listAuditLogs` | `entity?, entity_id?, action?, from?, to?, cursor?, limit?` | `items:[{action,entity,entity_id,actor_name,via_agent,at}]` (không `before`/`after`) | AdminTable |
-| `list_metrics` | không gọi backend: danh mục cố định trong code | — | 4 metric `query_metric` hỗ trợ kèm định nghĩa từ contract (cách tính, đơn vị, mốc thời gian) | — |
+| `list_metrics` | không gọi backend: danh mục cố định trong code | `time_from,time_to` có offset, tối đa 366 ngày | 4 metric kèm cách tính/đơn vị/mốc thời gian; `from,to,timezone,computed_at,computed_at_basis: catalog_generated_at` (thời điểm dựng danh mục, không phải đo backend) | — |
 
 `query_metric` chỉ dùng `group_by=none` vì backend nhóm theo ngày bằng UTC; muốn chuỗi theo ngày/tháng giờ Việt Nam thì dùng `get_admin_dashboard`. Khoảng tối đa 366 ngày.
 

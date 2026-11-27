@@ -282,6 +282,12 @@ def project(
     Operation có khai báo trong SPECS luôn dùng SPECS; chưa khai báo thì Buyer dùng model pydantic.
     """
     requested = requested or {}
+    if operation in ("getAdminDashboard", "queryMetric"):
+        from vingo_agent.tools.admin_read import project_reporting
+
+        if role != "ADMIN":
+            raise ToolError("FORBIDDEN")
+        return bound_result(project_reporting(operation, raw, requested))
     if operation in SPECS:
         return bound_result(validate_object(raw, SPECS[operation], requested))
     if role == "BUYER" and (operation in _BUYER_MODELS or operation in ("getSeatmap", "getMe")):
