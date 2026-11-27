@@ -1,73 +1,169 @@
-# Case từ V2.3 mục 8. Điền `steps`/`assert` khi cài evaluator.
-
 - id: F01
-  input: "Hai lần xác nhận đồng thời"
-  expect: "1 EXECUTION, 1 lần ghi"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Hai lần xác nhận đồng thời
   steps: []
-  assert: []
-
+  pytest:
+  - tests/integration/test_actions.py::test_T10_concurrentAndRepeatedConfirm_callsBackendOnce
 - id: F02
-  input: "Backend commit rồi timeout (hold)"
-  expect: "Gọi lại cùng key → SUCCEEDED; không tạo key mới"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Backend commit rồi timeout (hold)
   steps: []
-  assert: []
-
+  pytest:
+  - tests/integration/test_actions.py::test_T11_timeoutThenLookup_reusesKeyAndDoesNotDuplicateWrite
 - id: F03
-  input: "Backend commit rồi timeout (resend)"
-  expect: "`UNKNOWN`; không gửi lại"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Backend commit rồi timeout (resend)
   steps: []
-  assert: []
-
+  pytest:
+  - tests/integration/test_actions.py::test_unknownCreate_isNeverRetried
+  - tests/unit/test_action_specs.py::test_catalog_nonRetryableWrite_staysUnknown
 - id: F04
-  input: "Hai buyer tranh ghế cuối"
-  expect: "Tối đa 1 hold thành công"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: Backend
+  scenario: Hai buyer tranh ghế cuối
   steps: []
-  assert: []
-
+  link: ../vingo-backend/src/test/java/vingo/booking/HoldSeatsConcurrencyTest.java
 - id: F05
-  input: "Agent chết sau khi gọi backend"
-  expect: "EXECUTION RUNNING quá hạn được coi UNKNOWN và tra lại khi mở hội thoại"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Agent chết sau khi gọi backend
   steps: []
-  assert: []
-
+  pytest:
+  - tests/integration/test_actions.py::test_crashedRunningExecution_isResolvedOnlyAfterLease
 - id: F06
-  input: "Phiên hết hạn trước khi confirm"
-  expect: "401; 0 ghi"
-  steps: []
-  assert: []
-
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture:
+    no_pending: true
+  mode: E2E
+  scenario: Phiên hết hạn trước khi confirm
+  steps:
+  - message: Tìm Demo Concert ở Hà Nội, xem chi tiết và các suất diễn.
+    expected:
+      tools:
+      - search_events
+      - get_event
+      - list_event_showtimes
+      business_effects: 0
+  - message: Giữ 2 vé khu GA Demo Concert suất {{st_01_starts_at}}.
+    expected:
+      tools:
+      - propose_hold_seats
+      business_effects: 0
+      tool_args:
+        propose_hold_seats:
+          quantity: 2
+          zone_id: '{{zone_ga}}'
+      blocks:
+      - type: ConfirmAction
+        operation: HOLD_SEATS
+        display:
+          total: 500000
+    judge:
+      goal: Nêu đúng đề xuất, hướng dẫn xác nhận
+  - confirm: {}
+    inject:
+      expire_session: true
+    expected:
+      http_status: 401
+      business_effects: 0
+      errors:
+      - UNAUTHORIZED
 - id: F07
-  input: "Model chính lỗi 5xx/timeout trước chữ đầu tiên"
-  expect: "Model dự phòng trả lời; log `outcome=FALLBACK`; turn COMPLETED"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Model chính lỗi 5xx/timeout trước chữ đầu tiên
   steps: []
-  assert: []
-
+  pytest:
+  - tests/unit/test_turn_loop.py::test_fallback_onlyRetriesTransientErrors
+  - tests/unit/test_turn_loop.py::test_fallback_handlesTransportErrors
 - id: F11
-  input: "Cả model chính và dự phòng cùng lỗi"
-  expect: "`turn.failed BACKEND_UNAVAILABLE`; trang web mua vé vẫn hoạt động"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Cả model chính và dự phòng cùng lỗi
   steps: []
-  assert: []
-
+  pytest:
+  - tests/unit/test_turn_loop.py::test_turn_failsAndReleasesOnModelError
 - id: F12
-  input: "Model chính đứt sau khi đã stream chữ"
-  expect: "`turn.failed`; không chuyển sang model dự phòng giữa câu"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Model chính đứt sau khi đã stream chữ
   steps: []
-  assert: []
-
+  pytest:
+  - tests/unit/test_turn_loop.py::test_fallback_doesNotRetryAfterText
 - id: F08
-  input: "Mất kết nối SSE sau khi tạo đề xuất"
-  expect: "`GET /chat/turns/{id}` trả cùng đề xuất"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Mất kết nối SSE sau khi tạo đề xuất
   steps: []
-  assert: []
-
+  pytest:
+  - tests/integration/test_turn_routes.py::test_routes_persistFilteredHistoryAndReplayCommand
 - id: F09
-  input: "Backend trả field secret lạ"
-  expect: "Bị lọc"
+  group: fault
+  role: BUYER
+  actor: B1
+  fixture: seed
+  mode: pytest
+  scenario: Backend trả field secret lạ
   steps: []
-  assert: []
-
+  pytest:
+  - tests/integration/test_guardrails.py::test_T06_resultValidation_precedesRefsBlocksAndPriceEvidence
 - id: F10
-  input: "Admin sửa event trên web trong lúc xác nhận publish"
-  expect: "Backend quyết định; kết quả hiện đúng mã lỗi"
-  steps: []
-  assert: []
+  group: fault
+  role: ADMIN
+  actor: A1
+  fixture: seed
+  mode: E2E
+  scenario: Admin sửa event trên web trong lúc xác nhận publish
+  steps:
+  - message: Tìm sự kiện Demo Draft và xem chi tiết.
+    expected:
+      tools:
+      - list_admin_events
+      - get_admin_event
+      business_effects: 0
+  - message: Công bố Demo Draft.
+    expected:
+      tools:
+      - propose_publish_event
+      business_effects: 0
+  - confirm: {}
+    inject:
+      event_title: Sửa từ web
+    expected:
+      execution:
+        state: FAILED
+      business_effects: 0
+      errors:
+      - EVENT_INCOMPLETE

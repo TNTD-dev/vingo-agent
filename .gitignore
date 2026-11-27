@@ -7,4 +7,5 @@ __pycache__/
 .DS_Store
 .backend/
 
+evals/reports/
 /docs/MANUAL_TEST_KAN_204.md

@@ -15,8 +15,10 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+from opentelemetry.trace import StatusCode
 
 from vingo_agent.config import Settings
+from vingo_agent.observability.tracing import span
 from vingo_agent.schemas.errors import BackendErrorCode
 
 
@@ -35,12 +37,12 @@ OPERATIONS: dict[str, Operation] = {
     "listEventShowtimes": Operation("GET", "/events/{event_id}/showtimes"),
     "getAvailability": Operation("GET", "/showtimes/{showtime_id}/availability"),
     "getSeatmap": Operation("GET", "/showtimes/{showtime_id}/seatmap"),
+    "suggestSeats": Operation("GET", "/showtimes/{showtime_id}/seat-suggestions"),
     "getMe": Operation("GET", "/me"),
     "listMyOrders": Operation("GET", "/orders"),
     "getOrder": Operation("GET", "/orders/{order_id}"),
     "getPayment": Operation("GET", "/orders/{order_id}/payment"),
     "listMyTickets": Operation("GET", "/tickets"),
-    "getTicket": Operation("GET", "/tickets/{ticket_id}"),
     # Admin đọc
     "getAdminDashboard": Operation("GET", "/admin/dashboard"),
     "queryMetric": Operation("GET", "/admin/reports/metrics"),
@@ -92,7 +94,8 @@ class BackendClient:
         url = self._settings.backend_url.rstrip("/") + spec.path.format(**safe_path)
         for attempt in range(3):
             try:
-                response = await self._http.request(
+                response = await self._request(
+                    operation,
                     spec.method,
                     url,
                     params=query,
@@ -122,9 +125,7 @@ class BackendClient:
                 code = (
                     "BACKEND_UNAVAILABLE"
                     if response.status_code >= 500
-                    else "RATE_LIMITED"
-                    if response.status_code == 429
-                    else "INVALID_TOOL_RESULT"
+                    else {404: "NOT_FOUND", 429: "RATE_LIMITED"}.get(response.status_code, "INVALID_TOOL_RESULT")
                 )
                 if not retryable:
                     try:
@@ -133,7 +134,7 @@ class BackendClient:
                             code = candidate
                     except (ValueError, AttributeError):
                         pass
-                raise ToolError(code, retryable=retryable)
+                raise ToolError(code, retryable=retryable, http_status=response.status_code)
             try:
                 data = response.json()
                 if not isinstance(data, dict):
@@ -152,7 +153,45 @@ class BackendClient:
         idempotency_key: UUID | None = None,
     ) -> httpx.Response:
         """Gọi operation ghi đúng một lần; timeout/5xx để caller quyết định UNKNOWN."""
-        raise NotImplementedError
+        from vingo_agent.tools.base import ToolError
+
+        spec = OPERATIONS.get(operation)
+        if spec is None or not spec.write:
+            raise ToolError("INVALID_ARGUMENT")
+        fields = {name for _, name, _, _ in Formatter().parse(spec.path) if name}
+        if set(path or {}) != fields or (spec.idempotent_key and idempotency_key is None):
+            raise ToolError("INVALID_ARGUMENT")
+        try:
+            safe_path = {key: str(UUID(str(value))) for key, value in (path or {}).items()}
+        except (ValueError, TypeError, AttributeError):
+            raise ToolError("INVALID_ARGUMENT") from None
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "X-Vingo-Agent-Key": self._settings.agent_to_backend_key,
+        }
+        if spec.idempotent_key:
+            headers["Idempotency-Key"] = str(idempotency_key)
+        return await self._request(
+            operation,
+            spec.method,
+            self._settings.backend_url.rstrip("/") + spec.path.format(**safe_path),
+            json=body,
+            headers=headers,
+            follow_redirects=False,
+            timeout=10,
+        )
+
+    async def _request(self, operation, *args, **kwargs):
+        with span("backend.http", operation=operation) as trace:
+            try:
+                response = await self._http.request(*args, **kwargs)
+            except httpx.RequestError:
+                trace.set_attribute("outcome", "NETWORK_ERROR")
+                raise
+            trace.set_attribute("outcome", str(response.status_code))
+            if response.is_error:
+                trace.set_status(StatusCode.ERROR)
+            return response
 
     async def aclose(self) -> None:
         await self._http.aclose()
