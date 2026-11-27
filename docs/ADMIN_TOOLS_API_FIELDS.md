@@ -6,19 +6,19 @@ Nguồn tra cứu gồm [thiết kế V2.3](VINGO_AGENT_DESIGN_V2.3.md), [regist
 
 ## 1. Tool đọc Admin
 
-Các field ở cột cuối là projection **theo thiết kế**. Kiểm registry và phần thân hàm trước khi dùng. Checkout được đối chiếu vẫn có tool đọc dạng hàm khung.
+Các field ở cột cuối mô tả projection của agent. Các tool đọc catalog được đăng ký theo vai trò Admin.
 
 | Tool | Method, path và operationId | Input chính | Field cấp cho model theo V2.3 |
 |---|---|---|---|
-| `list_venues` | GET `/admin/venues` · `listVenues` | `q?`, `cursor?`, `limit?`; API có thêm `city?` | `items[].venue_id, name, city` |
-| `get_admin_venue` | GET `/admin/venues/{venue_id}` · `getAdminVenue` | `venue_id` | `venue_id, name, city`. Thiết kế có `status`; response `Venue` hiện không có field đó. |
-| `list_seat_layouts` | GET `/admin/venues/{venue_id}/seat-layouts` · `listSeatLayouts` | `venue_id, cursor?, limit?`; API có `layout_type?` | `items[].layout_id, name, status`; trạng thái layout cần dựa vào nguồn đã kiểm chứng. |
-| `get_seat_layout` | GET `/admin/seat-layouts/{layout_id}` · `getSeatLayout` | `layout_id` | `layout_id, venue_id, name, zones[].zone_id/name/capacity`. Backend hiện không trả `status` ở endpoint này. |
-| `get_seat_layout_zone` | GET `/admin/seat-layouts/{layout_id}/zones/{zone_id}` · `getSeatLayoutZone` | `layout_id, zone_id` | Hàng ghế của khu ngồi hoặc sức chứa khu đứng |
+| `list_venues` | GET `/admin/venues` · `listVenues` | `q?`, `cursor?`, `limit?`; API có thêm `city?` | `items[].venue_id, name, city, address` |
+| `get_admin_venue` | GET `/admin/venues/{venue_id}` · `getAdminVenue` | `venue_id` | `venue_id, name, city, address` |
+| `list_seat_layouts` | GET `/admin/venues/{venue_id}/seat-layouts` · `listSeatLayouts` | `venue_id, cursor?, limit?`; API có `layout_type?` | `items[].layout_id, venue_id, name, layout_type, version` |
+| `get_seat_layout` | GET `/admin/seat-layouts/{layout_id}` · `getSeatLayout` | `layout_id` | `layout_id, venue_id, name, layout_type, version, zones[].zone_id/name/code/kind/capacity` |
+| `get_seat_layout_zone` | GET `/admin/seat-layouts/{layout_id}/zones/{zone_id}` · `getSeatLayoutZone` | `layout_id, zone_id` | Hàng, số và mã ghế của khu ngồi hoặc sức chứa khu đứng |
 | `get_admin_layout_tree` | GET `/admin/venues/{venue_id}/layout-tree` · `getAdminLayoutTree` | `venue_id, layout_type, cursor?, limit?` | Các phiên bản sơ đồ theo loại, trạng thái, overview và khu |
 | `list_admin_events` | GET `/admin/events` · `listAdminEvents` | `q?, status?, cursor?, limit?`; API có `category?` | `items[].event_id, title, category, status` |
 | `get_admin_event` | GET `/admin/events/{event_id}` · `getAdminEvent` | `event_id` | `event_id, title, category, status, showtimes[].showtime_id/starts_at/status/layout_id`; đọc response gốc trong code khi cần snapshot giá. |
-| `get_seatmap` | GET `/showtimes/{showtime_id}/seatmap` · `getSeatmap` | `showtime_id, zone_id`, bộ lọc hàng nếu hỗ trợ | `seats[].seat_id, row, number, status`; tối đa 60 ghế theo thiết kế |
+| `get_seatmap` | GET `/showtimes/{showtime_id}/seatmap` · `getSeatmap` | `showtime_id, zone_id, row?`; agent lọc hàng sau khi đọc | Suất của sự kiện đã công bố và đang hiển thị công khai. Trả `kind, available_count` và tối đa 60 ghế với `seat_id, row, number, status`. |
 | `get_zone_prices_preview` | POST `/admin/events/{event_id}/zone-prices/preview` · `previewZonePrices` | `event_id, assignments[]` | Tổng số SKU và số SKU theo khu; POST này chỉ tính preview |
 | `admin_list_orders` | GET `/admin/orders` · `adminListOrders` | `status?, event_id?, showtime_id?, q?, cursor?, limit?` | `order_id, code, status, event_title, starts_at, total_amount, created_at` |
 | `admin_get_order` | GET `/admin/orders/{order_id}` · `adminGetOrder` | `order_id` | OrderView, `payments[].status/amount/last_response_code`, `history[].status/at` |

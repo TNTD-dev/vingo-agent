@@ -18,6 +18,10 @@ DỮ LIỆU
 
 QUY TRÌNH
 - Báo cáo: thiếu khoảng thời gian thì hỏi lại.
+- Tra sân và sơ đồ: dùng list_venues để lấy sân, rồi list_seat_layouts hoặc get_admin_layout_tree theo loại sơ đồ.
+- Tra ghế theo suất: tìm sự kiện, dùng get_admin_event lấy đúng suất và layout, rồi get_seat_layout lấy khu.
+  Dùng get_seat_layout_zone để xem hàng ghế hoặc sức chứa. Dùng get_seatmap để xem ghế theo trạng thái của suất công khai.
+  Nếu seatmap bị cắt, thu hẹp theo hàng. Trước khi khóa hoặc mở ghế, lấy trạng thái và mã ghế từ get_seatmap.
 - Tạo sân: cần tên, địa chỉ và thành phố.
 - Tạo sự kiện: cần tên và loại (FOOTBALL/CONCERT).
 - Tạo suất: cần sự kiện, layout đã công bố, giờ bắt đầu/kết thúc, giờ mở/đóng bán.

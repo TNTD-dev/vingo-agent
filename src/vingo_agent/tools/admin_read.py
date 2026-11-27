@@ -1,4 +1,4 @@
-"""10 tool đọc của Admin (V2.3 mục 4.3). `get_seatmap` dùng chung tên với Buyer nhưng projection khác.
+"""Tool đọc của Admin (V2.3 mục 4.3). `get_seatmap` dùng chung tên với Buyer nhưng projection khác.
 
 Chuỗi lấy ID: get_admin_event → layout_id → get_seat_layout → zone_id → get_seatmap → seat_id.
 """
@@ -15,6 +15,7 @@ from pydantic_ai import RunContext
 from vingo_agent.guardrails.input import redact
 from vingo_agent.guardrails.result import MAX_RESULT_BYTES
 from vingo_agent.schemas.chat import Role
+from vingo_agent.tools import blocks
 from vingo_agent.tools.base import ToolError, TurnDeps, fail, ok, record_refs, require_ref
 from vingo_agent.tools.buyer_read import OrderStatus, PageLimit, TicketStatus
 from vingo_agent.tools.catalog import ZonePriceInput, as_record, uuid_text, zone_price_body
@@ -140,6 +141,44 @@ async def get_seat_layout(ctx: RunContext[TurnDeps], layout_id: UUID) -> dict:
     )
 
 
+async def get_seat_layout_zone(ctx: RunContext[TurnDeps], layout_id: UUID, zone_id: UUID) -> dict:
+    """Xem hàng và số ghế của khu ngồi, hoặc sức chứa khu đứng, trên đúng phiên bản layout. → getSeatLayoutZone"""
+    operation = "getSeatLayoutZone"
+    try:
+        _reporting_admin(ctx)
+        deps = ctx.deps
+        await require_ref(deps, "LAYOUT", layout_id)
+        await require_ref(deps, "ZONE", zone_id)
+        path = {"layout_id": str(layout_id), "zone_id": str(zone_id)}
+        raw = await deps.backend.read(operation, path=path)
+        data, truncated = project(operation, raw, role=Role.ADMIN, requested={"zone_id": zone_id})
+        await record_refs(deps, "SEAT", [UUID(seat["seat_id"]) for row in data["rows"] or [] for seat in row["seats"]])
+        return ok(operation, data | {"layout_id": str(layout_id)}, truncated=truncated, observed_at=datetime.now(UTC))
+    except ToolError as error:
+        return fail(operation, error)
+
+
+async def get_admin_layout_tree(
+    ctx: RunContext[TurnDeps],
+    venue_id: UUID,
+    layout_type: Literal["FOOTBALL", "CONCERT"],
+    cursor: str | None = None,
+    limit: PageLimit = 10,
+) -> dict:
+    """Xem các phiên bản layout của sân theo loại, mới trước, kèm thông tin nền và các khu. → getAdminLayoutTree"""
+    return await _catalog_list(
+        ctx,
+        "getAdminLayoutTree",
+        "LAYOUT",
+        "layout_id",
+        cursor,
+        limit,
+        path={"venue_id": str(venue_id)},
+        parent=("VENUE", venue_id),
+        layout_type=layout_type,
+    )
+
+
 async def list_admin_events(
     ctx: RunContext[TurnDeps],
     q: str | None = None,
@@ -169,17 +208,24 @@ async def get_admin_event(ctx: RunContext[TurnDeps], event_id: UUID) -> dict:
 
 
 async def _catalog_list(ctx, operation, resource_type, key, cursor, limit, *, path=None, parent=None, **filters):
-    from vingo_agent.tools.blocks import build_block
-
     try:
         _reporting_admin(ctx)
         if parent is not None:
             await require_ref(ctx.deps, *parent)
         query = _operations_page(cursor, limit) | {key: value for key, value in filters.items() if value is not None}
         raw = await ctx.deps.backend.read(operation, path=path, query=query)
-        data, truncated = project(operation, raw, role=Role.ADMIN, requested=path)
+        requested = dict(path or {})
+        if operation == "getAdminLayoutTree":
+            requested["layout_type"] = filters["layout_type"]
+        data, truncated = project(operation, raw, role=Role.ADMIN, requested=requested)
+        block = blocks.build_block(operation, data, role=Role.ADMIN)
         await record_refs(ctx.deps, resource_type, [UUID(item[key]) for item in data["items"]])
-        ctx.deps.blocks.append(build_block(operation, data, role=Role.ADMIN))
+        if operation == "getAdminLayoutTree":
+            await record_refs(
+                ctx.deps, "ZONE", [UUID(zone["zone_id"]) for item in data["items"] for zone in item["zones"]]
+            )
+        if block is not None:
+            ctx.deps.blocks.append(block)
         return ok(operation, data, truncated=truncated, observed_at=datetime.now(UTC))
     except ToolError as error:
         return fail(operation, error)
@@ -272,8 +318,29 @@ async def admin_list_tickets(
 async def get_seatmap_admin(
     ctx: RunContext[TurnDeps], showtime_id: UUID, zone_id: UUID, row: str | None = None
 ) -> dict:
-    """Ghế mọi trạng thái trong một khu (tối đa 60). Đăng ký với model dưới tên `get_seatmap`. → getSeatmap"""
-    raise NotImplementedError
+    """Xem tối đa 60 ghế với mọi trạng thái trong một khu của suất công khai. Nếu bị cắt, chọn hàng. → getSeatmap"""
+    operation = "getSeatmap"
+    try:
+        _reporting_admin(ctx)
+        deps = ctx.deps
+        if row is not None:
+            row = row.strip()
+            if not row:
+                raise ToolError("INVALID_ARGUMENT")
+        await require_ref(deps, "SHOWTIME", showtime_id)
+        await require_ref(deps, "ZONE", zone_id)
+        requested = {"showtime_id": showtime_id, "zone_id": zone_id}
+        raw = await deps.backend.read(
+            operation, path={"showtime_id": str(showtime_id)}, query={"zone_id": str(zone_id)}
+        )
+        data, truncated = project(operation, raw, role=Role.ADMIN, requested=requested, row=row)
+        block = blocks.build_block(operation, data, role=Role.ADMIN)
+        await record_refs(deps, "SEAT", [UUID(seat["seat_id"]) for seat in data["seats"]])
+        if block is not None:
+            deps.blocks.append(block)
+        return ok(operation, data, truncated=truncated, observed_at=datetime.now(UTC))
+    except ToolError as error:
+        return fail(operation, error)
 
 
 REPORTING_OPERATIONS = frozenset({"getAdminDashboard", "queryMetric"})
@@ -840,6 +907,8 @@ ADMIN_READ_TOOLS = (
     get_admin_venue,
     list_seat_layouts,
     get_seat_layout,
+    get_seat_layout_zone,
+    get_admin_layout_tree,
     list_admin_events,
     get_admin_event,
     get_zone_prices_preview,
