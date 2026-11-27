@@ -15,8 +15,10 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+from opentelemetry.trace import StatusCode
 
 from vingo_agent.config import Settings
+from vingo_agent.observability.tracing import span
 from vingo_agent.schemas.errors import BackendErrorCode
 
 
@@ -92,7 +94,8 @@ class BackendClient:
         url = self._settings.backend_url.rstrip("/") + spec.path.format(**safe_path)
         for attempt in range(3):
             try:
-                response = await self._http.request(
+                response = await self._request(
+                    operation,
                     spec.method,
                     url,
                     params=query,
@@ -168,7 +171,8 @@ class BackendClient:
         }
         if spec.idempotent_key:
             headers["Idempotency-Key"] = str(idempotency_key)
-        return await self._http.request(
+        return await self._request(
+            operation,
             spec.method,
             self._settings.backend_url.rstrip("/") + spec.path.format(**safe_path),
             json=body,
@@ -176,6 +180,18 @@ class BackendClient:
             follow_redirects=False,
             timeout=10,
         )
+
+    async def _request(self, operation, *args, **kwargs):
+        with span("backend.http", operation=operation) as trace:
+            try:
+                response = await self._http.request(*args, **kwargs)
+            except httpx.RequestError:
+                trace.set_attribute("outcome", "NETWORK_ERROR")
+                raise
+            trace.set_attribute("outcome", str(response.status_code))
+            if response.is_error:
+                trace.set_status(StatusCode.ERROR)
+            return response
 
     async def aclose(self) -> None:
         await self._http.aclose()

@@ -11,6 +11,7 @@ from sqlalchemy import insert, select, update
 from vingo_agent.actions import execution as runner
 from vingo_agent.actions.registry import get_spec
 from vingo_agent.config import get_settings
+from vingo_agent.observability.tracing import span
 from vingo_agent.persistence.db import transaction
 from vingo_agent.persistence.models import conversation, execution, pending_action
 from vingo_agent.schemas.blocks import ActionResult, Block
@@ -72,7 +73,7 @@ def result_blocks(action_id, operation, outcome):
     return blocks
 
 
-async def confirm(
+async def _confirm(
     *,
     action_id,
     version: int,
@@ -82,12 +83,14 @@ async def confirm(
     confirm_phrase=None,
     backend=None,
     notices=None,
+    trace,
 ):
     expired = False
     claimed = False
     async with transaction() as conn:
         row = await _lock(conn, action_id, principal)
         operation = row["operation"]
+        trace.set_attribute("operation", operation)
         if row["version"] != version:
             raise ToolError("ACTION_NOT_PENDING")
         spec = get_spec(operation)
@@ -198,3 +201,22 @@ async def reject(*, action_id, version: int, principal) -> str:
     if expired:
         raise ToolError("ACTION_NOT_PENDING")
     return "REJECTED"
+
+
+async def confirm(*, action_id, version, principal, via, buyer=None, confirm_phrase=None, backend=None, notices=None):
+    with span("action.confirm", action_id=str(action_id)) as trace:
+        outcome, blocks = await _confirm(
+            action_id=action_id,
+            version=version,
+            principal=principal,
+            via=via,
+            buyer=buyer,
+            confirm_phrase=confirm_phrase,
+            backend=backend,
+            notices=notices,
+            trace=trace,
+        )
+        trace.set_attribute("outcome", outcome[0])
+        if blocks:
+            trace.set_attribute("operation", blocks[0].operation)
+        return outcome, blocks
