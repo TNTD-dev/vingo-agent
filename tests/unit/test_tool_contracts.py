@@ -110,9 +110,13 @@ def reference_contracts():
                 args["entity"] = "order"
             if name == "query_metric":
                 args.update(time_from="2030-01-01T00:00:00+07:00", time_to="2030-01-02T00:00:00+07:00")
+            if name == "propose_update_event":
+                args["title"] = "Tên mới"
+            if name == "propose_update_venue":
+                args["name"] = "Sân mới"
             for key in ids:
                 args[key] = [str(uuid4())] if key.endswith("_ids") else str(uuid4())
-            if "starts_at" in args:
+            if "starts_at" in args or name == "propose_update_showtime":
                 args.update(
                     starts_at="2030-01-10T19:00:00+07:00",
                     ends_at="2030-01-10T22:00:00+07:00",

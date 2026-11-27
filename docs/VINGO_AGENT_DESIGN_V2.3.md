@@ -135,7 +135,7 @@ Bạn là Vingo Admin Assistant. Trả lời tiếng Việt, súc tích.
 
 PHẠM VI
 - Tra cứu dashboard, số liệu, sân, sơ đồ, sự kiện, suất, đơn, vé, check-in, nhật ký thao tác.
-- Đề xuất: tạo/sửa sân, nhập sơ đồ (file SVG), tạo/sửa sự kiện DRAFT, tạo/sửa/huỷ suất,
+- Đề xuất: tạo/sửa sân, nhập sơ đồ (file SVG), tạo sự kiện DRAFT, sửa sự kiện DRAFT/PUBLISHED, tạo/sửa/huỷ suất,
   cấu hình hạng vé và giá, công bố, ẩn/hiện, huỷ sự kiện, khóa/mở ghế, gửi lại vé.
 - Không: hoàn tiền, xử lý NEEDS_REVIEW (hướng sang Admin Portal), huỷ/cấp lại QR vé,
   quản lý user, xuất file, mua vé.
@@ -155,7 +155,7 @@ QUY TRÌNH
 - Tạo sự kiện: cần tên và loại (FOOTBALL/CONCERT).
 - Tạo suất: cần sự kiện, layout đã công bố, giờ bắt đầu/kết thúc, giờ mở/đóng bán.
 - Sửa: luôn đọc bản hiện tại trước, đề xuất chỉ chứa trường thay đổi; thẻ hiện trước/sau.
-- Giá: đọc cấu hình hiện có; gán hạng cho khu thì xem trước (preview_zone_prices) rồi mới đề xuất.
+- Giá: đọc cấu hình qua get_admin_event. Khi thay hạng vé hoặc gán khu, gửi toàn bộ danh sách muốn giữ. Gán hạng cho khu phải gọi get_zone_prices_preview với cùng danh sách trong lượt đó trước khi đề xuất.
 - Huỷ sự kiện/suất, khóa ghế, ẩn sự kiện cần lý do. Huỷ phải bấm nút và gõ lại tên trên thẻ.
 - Đơn của khách: chỉ nêu mã đơn, trạng thái, tổng tiền; không đọc to email/SĐT.
 - Tin nhắn có `[đã ẩn]` ở chỗ SĐT/email: không đoán; yêu cầu admin đưa mã đơn hoặc dùng ô tìm kiếm trên trang admin để tra theo SĐT/email.
@@ -301,7 +301,7 @@ QR: model không bao giờ thấy `qr_token`. Block TicketList có nút "Xem QR"
 | `list_seat_layouts` | `listSeatLayouts` | `venue_id, cursor?, limit?` | `items:[{layout_id,name,status}]` | AdminTable |
 | `get_seat_layout` | `getSeatLayout` | `layout_id` | `layout_id,venue_id,name,status,zones:[{zone_id,name,capacity}]` | — |
 | `list_admin_events` | `listAdminEvents` | `q?, status?, cursor?, limit?` | `items:[{event_id,title,category,status}]` | AdminTable |
-| `get_admin_event` | `getAdminEvent` | `event_id` | `event_id,title,category,status,showtimes:[{showtime_id,starts_at,status,layout_id}]` | — |
+| `get_admin_event` | `getAdminEvent` | `event_id` | `event_id,title,category,status,layout_id,showtimes:[{showtime_id,starts_at,status,layout_id}],price_tiers:[{price_tier_id,name,price,color}],zone_prices:[{zone_id,price_tier_id,display_name}]` | — |
 | `admin_list_tickets` | `adminListTickets` | `showtime_id?, order_id?, code?, status?, cursor?, limit?` (ít nhất một bộ lọc) | `items:[TicketView]` (không email, SĐT, QR) | AdminTable |
 | `get_seatmap` | `getSeatmap` | như Buyer | Ghế mọi trạng thái: `seats:[{seat_id,row,number,status}]`, tối đa 60 | SeatMap |
 | `get_seat_layout_zone` | `getSeatLayoutZone` | `layout_id, zone_id` | Hàng ghế hoặc sức chứa của khu | — |
@@ -338,9 +338,9 @@ Chưa có metric tỷ lệ chuyển đổi trong backend; biểu đồ và xuấ
 | `propose_seat_layout` | `venue_id?` (thêm vào sân có sẵn) hoặc thông tin sân mới, `layout_type`, file SVG đã tải lên | Phiên Venue Import: tạo phiên → tải SVG → preview; thẻ hiện kết quả preview và `revision` | `completeVenueImport` (gọi lại trả cùng ID) | 30 phút |
 | `propose_update_event` | `event_id` + trường đổi trong `EventPatchInput` | Đọc `getAdminEvent`; event DRAFT/PUBLISHED; đổi `seat_layout_id` chỉ khi DRAFT và không còn suất dùng layout cũ; snapshot `before` | `updateEvent` | 10 phút |
 | `propose_update_price_tiers` | `event_id, tiers:[{id?, name, price, color?}]` (toàn bộ danh sách) | Đọc hạng hiện có; thẻ hiện thêm/sửa/xoá; snapshot `before` | `putPriceTiers` | 10 phút |
-| `propose_add_tier_price` | `event_id, tier_id, price, effective_from?, reason?` | Event chưa CANCELLED | `addSkuPrice` | 10 phút |
-| `propose_update_zone_prices` | `event_id, assignments:[{zone_id, price_tier_id, display_name?}]` (toàn bộ danh sách) | Đã gọi `get_zone_prices_preview` trong turn; snapshot `before` | `putZonePrices` | 10 phút |
-| `propose_update_showtime` | `showtime_id` + trường đổi trong `seat_layout_id, starts_at, ends_at, sale_opens_at, sale_closes_at` | Suất DRAFT hoặc SCHEDULED chưa tới `sale_opens_at`; snapshot `before` | `updateShowtime` | 10 phút |
+| `propose_add_tier_price` | `event_id, tier_id, price, effective_from?, reason?` | Event chưa CANCELLED; snapshot giá hiệu lực và ID các phiên bản giá hiện có | `addSkuPrice` | 10 phút |
+| `propose_update_zone_prices` | `event_id, assignments:[{zone_id, price_tier_id, display_name?}]` (toàn bộ danh sách) | Đã gọi `get_zone_prices_preview` cho cùng sự kiện và danh sách trong turn; snapshot `before` và layout | `putZonePrices` | 10 phút |
+| `propose_update_showtime` | `event_id, showtime_id` + trường đổi trong `seat_layout_id, starts_at, ends_at, sale_opens_at, sale_closes_at` | Đọc suất qua `getAdminEvent`; suất DRAFT hoặc SCHEDULED chưa tới `sale_opens_at`; snapshot `before` | `updateShowtime` | 10 phút |
 | `propose_cancel_showtime` | `showtime_id, reason (≥3 ký tự)` | Suất chưa mở bán; thẻ cần gõ lại giờ suất | `cancelShowtime` | 10 phút |
 | `propose_cancel_event` | `event_id, reason (≥3 ký tự)` | Chưa suất nào ON_SALE; thẻ nêu số suất bị ảnh hưởng, cần gõ lại tên sự kiện | `cancelEvent` | 10 phút |
 | `propose_update_event_visibility` | `event_id, visible, reason` | Event PUBLISHED | `PUT /admin/events/{id}/visibility` (**chưa có trong contract**) | 10 phút |
@@ -635,7 +635,7 @@ Thẻ huỷ có `"confirm_phrase":"<tên sự kiện hoặc giờ suất>"`: web
 | RESEND (Buyer/Admin) | Không | `UNKNOWN`, báo "có thể đã gửi" |
 | CREATE_EVENT / CREATE_SHOWTIME / CREATE_VENUE / ADD_TIER_PRICE | Không | `UNKNOWN`, báo admin kiểm tra trang quản trị |
 | UPDATE_VENUE / UPDATE_EVENT / UPDATE_SHOWTIME | Có (PATCH cùng giá trị) | Đọc lại: đã bằng giá trị mới → SUCCEEDED, còn bằng `before` → gọi lại |
-| UPDATE_PRICE_TIERS / UPDATE_ZONE_PRICES | Có (PUT cùng tập dữ liệu cho cùng kết quả) | Gọi lại |
+| UPDATE_PRICE_TIERS / UPDATE_ZONE_PRICES | Có (PUT cùng tập dữ liệu cho cùng kết quả) | Đọc lại: đã bằng danh sách mới → SUCCEEDED, còn bằng `before` → gọi lại |
 | SEAT_LAYOUT (complete import) | Có (phiên COMPLETED trả cùng ID) | Gọi lại |
 | CANCEL_EVENT / CANCEL_SHOWTIME | — | `getAdminEvent`: CANCELLED → SUCCEEDED |
 | UPDATE_EVENT_VISIBILITY | Có (đặt trạng thái đích) | Gọi lại |

@@ -17,6 +17,7 @@ from vingo_agent.guardrails.result import MAX_RESULT_BYTES
 from vingo_agent.schemas.chat import Role
 from vingo_agent.tools.base import ToolError, TurnDeps, fail, ok, record_refs, require_ref
 from vingo_agent.tools.buyer_read import OrderStatus, PageLimit, TicketStatus
+from vingo_agent.tools.catalog import ZonePriceInput, as_record, uuid_text, zone_price_body
 from vingo_agent.tools.projections import project
 
 Metric = Literal["tickets_sold", "revenue", "fill_rate", "checkins"]
@@ -114,24 +115,29 @@ async def list_venues(
     ctx: RunContext[TurnDeps], q: str | None = None, cursor: str | None = None, limit: PageLimit = 10
 ) -> dict:
     """Tìm sân. → listVenues"""
-    raise NotImplementedError
+    return await _catalog_list(ctx, "listVenues", "VENUE", "venue_id", cursor, limit, q=q)
 
 
 async def get_admin_venue(ctx: RunContext[TurnDeps], venue_id: UUID) -> dict:
     """Chi tiết sân đã chọn. → getAdminVenue"""
-    raise NotImplementedError
+    return await _catalog_detail(ctx, "getAdminVenue", "VENUE", "venue_id", venue_id)
 
 
 async def list_seat_layouts(
     ctx: RunContext[TurnDeps], venue_id: UUID, cursor: str | None = None, limit: PageLimit = 10
 ) -> dict:
     """Các sơ đồ ghế (layout) của một sân. → listSeatLayouts"""
-    raise NotImplementedError
+    path = {"venue_id": str(venue_id)}
+    return await _catalog_list(
+        ctx, "listSeatLayouts", "LAYOUT", "layout_id", cursor, limit, path=path, parent=("VENUE", venue_id)
+    )
 
 
 async def get_seat_layout(ctx: RunContext[TurnDeps], layout_id: UUID) -> dict:
     """Chi tiết layout và các khu (zone_id, sức chứa), không gồm SVG. → getSeatLayout"""
-    raise NotImplementedError
+    return await _catalog_detail(
+        ctx, "getSeatLayout", "LAYOUT", "layout_id", layout_id, refs=(("zones", "ZONE", "zone_id"),)
+    )
 
 
 async def list_admin_events(
@@ -142,12 +148,91 @@ async def list_admin_events(
     limit: PageLimit = 10,
 ) -> dict:
     """Sự kiện mọi trạng thái, kể cả DRAFT. → listAdminEvents"""
-    raise NotImplementedError
+    return await _catalog_list(ctx, "listAdminEvents", "EVENT", "event_id", cursor, limit, q=q, status=status)
 
 
 async def get_admin_event(ctx: RunContext[TurnDeps], event_id: UUID) -> dict:
     """Chi tiết sự kiện và các suất (kèm layout_id). → getAdminEvent"""
-    raise NotImplementedError
+    return await _catalog_detail(
+        ctx,
+        "getAdminEvent",
+        "EVENT",
+        "event_id",
+        event_id,
+        refs=(
+            ("showtimes", "SHOWTIME", "showtime_id"),
+            ("showtimes", "LAYOUT", "layout_id"),
+            ("price_tiers", "PRICE_TIER", "price_tier_id"),
+            ("zone_prices", "ZONE", "zone_id"),
+        ),
+    )
+
+
+async def _catalog_list(ctx, operation, resource_type, key, cursor, limit, *, path=None, parent=None, **filters):
+    from vingo_agent.tools.blocks import build_block
+
+    try:
+        _reporting_admin(ctx)
+        if parent is not None:
+            await require_ref(ctx.deps, *parent)
+        query = _operations_page(cursor, limit) | {key: value for key, value in filters.items() if value is not None}
+        raw = await ctx.deps.backend.read(operation, path=path, query=query)
+        data, truncated = project(operation, raw, role=Role.ADMIN, requested=path)
+        await record_refs(ctx.deps, resource_type, [UUID(item[key]) for item in data["items"]])
+        ctx.deps.blocks.append(build_block(operation, data, role=Role.ADMIN))
+        return ok(operation, data, truncated=truncated, observed_at=datetime.now(UTC))
+    except ToolError as error:
+        return fail(operation, error)
+
+
+async def _catalog_detail(ctx, operation, resource_type, key, resource_id, *, refs=()):
+    try:
+        _reporting_admin(ctx)
+        await require_ref(ctx.deps, resource_type, resource_id)
+        path = {key: str(resource_id)}
+        raw = await ctx.deps.backend.read(operation, path=path)
+        data, truncated = project(operation, raw, role=Role.ADMIN, requested=path)
+        if operation == "getAdminEvent" and data.get("layout_id"):
+            await record_refs(ctx.deps, "LAYOUT", [UUID(data["layout_id"])])
+        for collection, kind, item_key in refs:
+            await record_refs(ctx.deps, kind, [UUID(item[item_key]) for item in data[collection]])
+        return ok(operation, data, truncated=truncated, observed_at=datetime.now(UTC))
+    except ToolError as error:
+        return fail(operation, error)
+
+
+async def get_zone_prices_preview(ctx: RunContext[TurnDeps], event_id: UUID, assignments: list[ZonePriceInput]) -> dict:
+    """Xem trước tổng SKU và SKU mỗi khu cho toàn bộ danh sách gán hạng vé. → previewZonePrices"""
+    operation = "previewZonePrices"
+    try:
+        _reporting_admin(ctx)
+        deps = ctx.deps
+        deps.zone_price_preview = None
+        await require_ref(deps, "EVENT", event_id)
+        body = zone_price_body(assignments)
+        for item in assignments:
+            await require_ref(deps, "ZONE", item.zone_id)
+            await require_ref(deps, "PRICE_TIER", item.price_tier_id)
+        path = {"event_id": str(event_id)}
+        event = as_record(await deps.backend.read("getAdminEvent", path=path), str(event_id))
+        layout_id = uuid_text(event["seat_layout_id"]) if event.get("seat_layout_id") else None
+        raw = await deps.backend.read(operation, path=path, body=body)
+        data, truncated = project(operation, raw, role=Role.ADMIN, requested=path)
+        zones = data["zones"]
+        expected_zones = {item["zone_id"] for item in body}
+        if (
+            len({item["zone_id"] for item in zones}) != len(zones)
+            or not {item["zone_id"] for item in zones} <= expected_zones
+        ):
+            raise ToolError("INVALID_TOOL_RESULT")
+        if not truncated and (
+            len(zones) != len(body) or sum(item["sku_count"] for item in zones) != data["total_sku_count"]
+        ):
+            raise ToolError("INVALID_TOOL_RESULT")
+        deps.zone_price_preview = str(event_id), body, layout_id, data
+        return ok(operation, data, truncated=truncated, observed_at=datetime.now(UTC))
+    except ToolError as error:
+        return fail(operation, error)
 
 
 async def admin_list_tickets(
@@ -757,6 +842,7 @@ ADMIN_READ_TOOLS = (
     get_seat_layout,
     list_admin_events,
     get_admin_event,
+    get_zone_prices_preview,
     admin_list_tickets,
     admin_list_orders,
     admin_get_order,

@@ -7,6 +7,82 @@ from pydantic import BaseModel, ValidationError
 from vingo_agent.schemas import blocks as schema
 from vingo_agent.tools.base import ToolError
 
+_CATALOG_CHANGE_LABELS = {
+    "name": "Tên sân",
+    "address": "Địa chỉ",
+    "city": "Thành phố",
+    "district": "Quận/huyện",
+    "lat": "Vĩ độ",
+    "lng": "Kinh độ",
+    "rules": "Nội quy",
+    "title": "Tên sự kiện",
+    "category": "Loại sự kiện",
+    "description": "Mô tả",
+    "max_tickets_per_order": "Vé tối đa mỗi đơn",
+    "seat_layout_id": "Mã sơ đồ",
+    "home_team": "Đội nhà",
+    "away_team": "Đội khách",
+    "league": "Giải đấu",
+    "round": "Vòng đấu",
+    "poster_mobile_url": "Poster di động",
+    "poster_desktop_url": "Poster desktop",
+    "sale_opens_at": "Mở bán",
+    "sale_closes_at": "Đóng bán",
+    "starts_at": "Bắt đầu",
+    "ends_at": "Kết thúc",
+    "price": "Giá vé (đ)",
+    "effective_from": "Hiệu lực từ",
+    "reason": "Lý do",
+}
+
+
+def catalog_change_rows(display: dict) -> list[schema.ConfirmRow]:
+    def row(label, before, after):
+        return schema.ConfirmRow(
+            label=label, value=f"{'—' if before is None else before} → {'—' if after is None else after}"
+        )
+
+    def keyed(items, key):
+        return {item.get(key) or item["name"]: item for item in items}
+
+    def tier(item):
+        if item is None:
+            return None
+        suffix = f" · {item['color']}" if item.get("color") else ""
+        return f"{item['name']} · {item['price']:,} đ{suffix}"
+
+    def zone(item):
+        if item is None:
+            return None
+        names = display["tier_names"]
+        tier_id = item["price_tier_id"]
+        name = names.get(tier_id, tier_id)
+        return f"{item['display_name']} · {name}" if item.get("display_name") else name
+
+    rows = []
+    if "tier_name" in display:
+        rows.append(schema.ConfirmRow(label="Hạng vé", value=display["tier_name"]))
+    for change in display["changes"]:
+        field, before, after = change["field"], change["before"], change["after"]
+        if field in {"price_tiers", "zone_prices"}:
+            is_tier = field == "price_tiers"
+            key = "id" if is_tier else "zone_id"
+            render = tier if is_tier else zone
+            old, new = keyed(before, key), keyed(after, key)
+            zones = {item["zone_id"]: item["zone_name"] for item in display.get("preview", {}).get("zones", [])}
+            for identifier in dict.fromkeys((*old, *new)):
+                original, proposed = render(old.get(identifier)), render(new.get(identifier))
+                if original != proposed:
+                    index = len(rows) + 1
+                    label = f"Hạng vé {index}" if is_tier else f"Khu {index} · {zones.get(identifier, identifier)}"
+                    rows.append(row(label, original, proposed))
+        else:
+            rows.append(row(_CATALOG_CHANGE_LABELS[field], before, after))
+    if "preview" in display:
+        rows.append(schema.ConfirmRow(label="Tổng SKU sau cập nhật", value=str(display["preview"]["total_sku_count"])))
+    return rows or [schema.ConfirmRow(label="Trước và sau", value="Cấu hình giữ nguyên")]
+
+
 # operation → loại block. Tool không có trong bảng thì không sinh block.
 BLOCK_FOR_OPERATION: dict[str, str] = {
     "searchEvents": "EventList",

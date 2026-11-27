@@ -52,6 +52,7 @@ OPERATIONS: dict[str, Operation] = {
     "getSeatLayout": Operation("GET", "/admin/seat-layouts/{layout_id}"),
     "listAdminEvents": Operation("GET", "/admin/events"),
     "getAdminEvent": Operation("GET", "/admin/events/{event_id}"),
+    "previewZonePrices": Operation("POST", "/admin/events/{event_id}/zone-prices/preview"),
     "adminListTickets": Operation("GET", "/admin/tickets"),
     "adminListOrders": Operation("GET", "/admin/orders"),
     "adminGetOrder": Operation("GET", "/admin/orders/{order_id}"),
@@ -70,6 +71,12 @@ OPERATIONS: dict[str, Operation] = {
     "adminResendTicket": Operation("POST", "/admin/tickets/{ticket_id}/resend", write=True),
     # Admin
     "createVenue": Operation("POST", "/admin/venues", write=True),
+    "updateVenue": Operation("PATCH", "/admin/venues/{venue_id}", write=True),
+    "updateEvent": Operation("PATCH", "/admin/events/{event_id}", write=True),
+    "updateShowtime": Operation("PATCH", "/admin/showtimes/{showtime_id}", write=True),
+    "putPriceTiers": Operation("PUT", "/admin/events/{event_id}/price-tiers", write=True),
+    "addSkuPrice": Operation("POST", "/admin/events/{event_id}/price-tiers/{tier_id}/prices", write=True),
+    "putZonePrices": Operation("PUT", "/admin/events/{event_id}/zone-prices", write=True),
 }
 
 
@@ -80,7 +87,12 @@ class BackendClient:
         self._http = http or httpx.AsyncClient(base_url=settings.backend_url, follow_redirects=False, timeout=10)
 
     async def read(
-        self, operation: str, *, path: dict[str, Any] | None = None, query: dict[str, Any] | None = None
+        self,
+        operation: str,
+        *,
+        path: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+        body: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Gọi operation đọc; lỗi chuyển thành ToolError theo mã backend (ProblemDetail.code)."""
         from vingo_agent.tools.base import ToolError
@@ -103,6 +115,7 @@ class BackendClient:
                     spec.method,
                     url,
                     params=query,
+                    json=body,
                     headers={
                         "Authorization": f"Bearer {self._token}",
                         "X-Vingo-Agent-Key": self._settings.agent_to_backend_key,
@@ -153,7 +166,7 @@ class BackendClient:
         operation: str,
         *,
         path: dict[str, Any] | None = None,
-        body: dict[str, Any] | None = None,
+        body: dict[str, Any] | list[dict[str, Any]] | None = None,
         idempotency_key: UUID | None = None,
     ) -> httpx.Response:
         """Gọi operation ghi đúng một lần; timeout/5xx để caller quyết định UNKNOWN."""

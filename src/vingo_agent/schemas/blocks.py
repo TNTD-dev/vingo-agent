@@ -159,6 +159,11 @@ class ConfirmForm(StrEnum):
     BUYER = "BUYER"
 
 
+class ConfirmRow(BaseModel):
+    label: str
+    value: str
+
+
 class ConfirmAction(BaseModel):
     type: Literal["ConfirmAction"] = "ConfirmAction"
     action_id: UUID
@@ -168,6 +173,7 @@ class ConfirmAction(BaseModel):
     display: dict[str, object]
     form: ConfirmForm | None = None
     confirm_phrase: str | None = None
+    rows: list[ConfirmRow] | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ExecutionStatus(StrEnum):

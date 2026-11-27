@@ -269,6 +269,84 @@ _BUYER_MODELS = {
 }
 
 
+class _AdminVenue(BaseModel):
+    venue_id: UUID = Field(validation_alias="id")
+    name: Text
+    city: Text
+    address: Text | None = None
+
+
+class _AdminLayout(BaseModel):
+    layout_id: UUID = Field(validation_alias="id")
+    venue_id: UUID
+    name: Text
+
+
+class _AdminZone(BaseModel):
+    zone_id: UUID = Field(validation_alias="id")
+    name: Text = Field(validation_alias=AliasChoices("label", "name"))
+    capacity: StrictInt | None = None
+
+
+class _AdminLayoutDetail(_AdminLayout):
+    zones: list[_AdminZone]
+
+
+class _AdminEvent(BaseModel):
+    event_id: UUID = Field(validation_alias="id")
+    title: Text
+    category: Category
+    status: Literal["DRAFT", "PUBLISHED", "CANCELLED"]
+
+
+class _AdminShowtime(BaseModel):
+    showtime_id: UUID = Field(validation_alias="id")
+    layout_id: UUID = Field(validation_alias="seat_layout_id")
+    starts_at: Timestamp
+    status: ShowtimeStatus
+
+
+class _AdminTier(_Tier):
+    price_tier_id: UUID = Field(validation_alias=AliasChoices("id", "ticket_type_id"))
+    color: str | None = None
+
+
+class _AdminAssignment(BaseModel):
+    zone_id: UUID
+    price_tier_id: UUID = Field(validation_alias=AliasChoices("price_tier_id", "ticket_type_id"))
+    display_name: Text | None = None
+
+
+class _AdminEventDetail(_AdminEvent):
+    layout_id: UUID | None = Field(default=None, validation_alias="seat_layout_id")
+    showtimes: list[_AdminShowtime]
+    price_tiers: list[_AdminTier]
+    zone_prices: list[_AdminAssignment]
+
+
+class _AdminZonePreview(BaseModel):
+    zone_id: UUID
+    zone_name: Text
+    sku_count: Annotated[StrictInt, Field(ge=0)]
+
+
+class _AdminPricePreview(BaseModel):
+    event_id: UUID
+    total_sku_count: Annotated[StrictInt, Field(ge=0)]
+    zones: list[_AdminZonePreview]
+
+
+_ADMIN_CATALOG = {
+    "listVenues": _Page[_AdminVenue],
+    "getAdminVenue": _AdminVenue,
+    "listSeatLayouts": _Page[_AdminLayout],
+    "getSeatLayout": _AdminLayoutDetail,
+    "listAdminEvents": _Page[_AdminEvent],
+    "getAdminEvent": _AdminEventDetail,
+    "previewZonePrices": _AdminPricePreview,
+}
+
+
 def project(
     operation: str,
     raw: dict[str, Any],
@@ -294,6 +372,17 @@ def project(
         if role != "ADMIN":
             raise ToolError("FORBIDDEN")
         return bound_result(project_reporting(operation, raw, requested))
+    if operation in _ADMIN_CATALOG and role == "ADMIN":
+        try:
+            view = _ADMIN_CATALOG[operation].model_validate(raw)
+            records = view.items if isinstance(view, _Page) else [view]
+            if any(str(getattr(item, key, None)) != str(value) for item in records for key, value in requested.items()):
+                raise ToolError("INVALID_TOOL_RESULT")
+            context = {"truncated": False}
+            data, bounded = bound_result(view.model_dump(mode="json", context=context))
+            return data, bounded or context["truncated"]
+        except ValidationError:
+            raise ToolError("INVALID_TOOL_RESULT") from None
     if operation in SPECS:
         return bound_result(validate_object(raw, SPECS[operation], requested))
     if role == "BUYER" and (operation in _BUYER_MODELS or operation in ("getSeatmap", "getMe")):

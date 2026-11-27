@@ -14,16 +14,16 @@ def test_buyer_has17Tools_withoutAdminTools():
     assert not any(name.startswith(("get_admin", "admin_", "propose_create_event")) for name in tools)
 
 
-def test_admin_has24Tools_withSharedSeatmapName():
+def test_admin_has31Tools_withSharedSeatmapName():
     tools = tools_for(Role.ADMIN)
-    assert len(tools) == 24
+    assert len(tools) == 31
     assert tools["get_seatmap"].__name__ == "get_seatmap_admin"
 
 
-def test_totalDistinctToolNames_is38():
+def test_totalDistinctToolNames_is45():
     buyer, admin = tools_for(Role.BUYER).keys(), tools_for(Role.ADMIN).keys()
     assert buyer & admin == {"get_seatmap", "confirm_pending_action", "reject_pending_action"}
-    assert len(buyer | admin) == 38
+    assert len(buyer | admin) == 45
 
 
 def test_suggestSeats_isEnabledByDefault(monkeypatch):
@@ -54,3 +54,8 @@ def test_disabledTools_areNotRegistered(monkeypatch):
 def test_proposal_create_venue_isRegistered():
     tools = tools_for(Role.ADMIN)
     assert "propose_create_venue" in tools
+
+
+def test_proposal_update_venue_isRegistered():
+    tools = tools_for(Role.ADMIN)
+    assert "propose_update_venue" in tools

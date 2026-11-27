@@ -83,7 +83,17 @@ async def execute(operation, *, backend, payload, idempotency_key, buyer=None, l
             return result
     with span("lookup", operation=operation, outcome="UNKNOWN") as trace:
         if spec.lookup_mode == LookupMode.RETRY:
-            if lookup_only and spec.check_before is not None:
+            if spec.reconcile_retry is not None:
+                try:
+                    reconciliation = await spec.reconcile_retry(backend=backend, payload=payload)
+                except (httpx.RequestError, ToolError):
+                    reconciliation = None
+                if isinstance(reconciliation, dict):
+                    trace.set_attribute("outcome", "SUCCEEDED")
+                    return "SUCCEEDED", None, reconciliation
+                if reconciliation is not True:
+                    return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+            elif lookup_only and spec.check_before is not None:
                 try:
                     if not await spec.check_before(backend=backend, payload=payload):
                         return "UNKNOWN", "EXECUTION_UNKNOWN", {}
@@ -92,7 +102,7 @@ async def execute(operation, *, backend, payload, idempotency_key, buyer=None, l
             # Không có buyer khi mở lại hội thoại: tuyệt đối không tái dựng form từ DB.
             if spec.build_lookup_request is not None or not spec.needs_form or buyer is not None:
                 result = outcome(await send(lookup_request=spec.build_lookup_request is not None))
-                if result is not None:
+                if result is not None and (spec.reconcile_retry is None or result[0] == "SUCCEEDED"):
                     trace.set_attribute("outcome", result[0])
                     return result
         elif spec.lookup_mode == LookupMode.READ:
