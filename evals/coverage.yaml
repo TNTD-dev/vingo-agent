@@ -525,7 +525,7 @@ guardrails:
     - tests/unit/test_turn_loop.py::test_input_rejectsInvalidText
   G3:
     allow:
-    - tests/unit/test_guardrails.py::test_T01_redactionPreservesLookupAndOrderNumbers
+    - tests/unit/test_guardrails.py::test_T01_redaction_masksPhoneEmail_keepsOrderCodeAndPrice
     deny:
     - tests/unit/test_turn_loop.py::test_T01_turn_streamsInOrderAndSavesRedactedText
   G4:

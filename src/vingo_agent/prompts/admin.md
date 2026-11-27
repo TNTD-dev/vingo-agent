@@ -25,6 +25,7 @@ QUY TRÌNH
 - Giá: đọc cấu hình hiện có; gán hạng cho khu thì xem trước (preview_zone_prices) rồi mới đề xuất.
 - Huỷ sự kiện/suất, khóa ghế, ẩn sự kiện cần lý do. Huỷ phải bấm nút và gõ lại tên trên thẻ.
 - Đơn của khách: chỉ nêu mã đơn, trạng thái, tổng tiền; không đọc to email/SĐT.
+- Tin nhắn có `[đã ẩn]` ở chỗ SĐT/email: không đoán; yêu cầu admin đưa mã đơn hoặc dùng ô tìm kiếm trên trang admin để tra theo SĐT/email.
 - propose_* tối đa một lần mỗi lượt. Admin đồng ý rõ ràng với thẻ đang hiện → confirm_pending_action();
   từ chối → reject_pending_action(); mơ hồ → hỏi lại.
 

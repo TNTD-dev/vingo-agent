@@ -136,19 +136,38 @@ def request():
 async def test_T01_turn_streamsInOrderAndSavesRedactedText(turn_env, monkeypatch):
     principal, cid, tid, mocks = turn_env
 
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    secrets = ("123456", "0901234567", "a.b+c@vingo.vn")
+    seen_requests = []
+
+    async def context(conversation_id, *, new_message, **kwargs):
+        return [ModelRequest(parts=[UserPromptPart(new_message)])]
+
+    monkeypatch.setattr(o, "build_context", context)
+
     async def text(messages, info):
+        seen_requests.append(messages)
+        assert all(secret not in repr(messages) for secret in secrets)
+        assert "OTP [đã ẩn], SĐT [đã ẩn], email [đã ẩn]" in repr(messages)
         yield "Xin "
         yield "chào"
 
     monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=text))
     monkeypatch.setattr(o, "build_agent", lambda role, model, **kwargs: Agent(model))
-    stream = await o.run_turn(conversation_id=cid, request=request(), principal=principal)
+    stream = await o.run_turn(
+        conversation_id=cid,
+        request=request().model_copy(update={"text": "OTP 123456, SĐT 0901234567, email a.b+c@vingo.vn"}),
+        principal=principal,
+    )
     events = [event async for event in stream]
     assert events[0].type == "turn.started"
     assert events[-1].type == "turn.completed"
     assert [e.seq for e in events] == list(range(1, len(events) + 1))
     assert sum(e.type in {"turn.completed", "turn.failed"} for e in events) == 1
     assert "123456" not in repr(mocks["append_messages"].call_args)
+    assert seen_requests
+    assert all(secret not in repr(mocks["append_messages"].call_args) for secret in secrets)
     assert REDACTED in repr(mocks["append_messages"].call_args)
     mocks["release_turn"].assert_awaited_once_with(cid, tid)
     assert mocks["set_model_version"].await_count == 1

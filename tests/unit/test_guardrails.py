@@ -205,11 +205,11 @@ def test_G4_providerSchema_isStrictAndForbidsExtra():
     assert tool.function_schema.json_schema["properties"]["quantity"]["maximum"] == 20
 
 
-def test_T01_redactionPreservesLookupAndOrderNumbers():
+def test_T01_redaction_masksPhoneEmail_keepsOrderCodeAndPrice():
     from vingo_agent.guardrails.input import redact
 
     text = "mã đơn 123456, giá 250000 VND, email a@example.com, SĐT 0901234567"
-    assert redact(text) == text
+    assert redact(text) == "mã đơn 123456, giá 250000 VND, email [đã ẩn], SĐT [đã ẩn]"
 
 
 async def test_G11_deniedLog_onlyForGuardrailCodes_notBackendBusinessErrors(deps, monkeypatch):
@@ -247,3 +247,59 @@ async def test_T09_failedProposal_allowsRetryInSameTurn(deps):
         {"ok": True},
     ]
     assert deps.proposals_created == 1
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "0901234567",
+        "090 123 4567",
+        "090.123.4567",
+        "090-123-4567",
+        "+84901234567",
+        "+84 901 234 567",
+        "84901234567",
+        "a.b+c@vingo.vn",
+    ],
+)
+def test_G3_redactsVietnamesePhoneAndEmail(text):
+    from vingo_agent.guardrails.input import REDACTED, redact
+
+    assert redact(text) == REDACTED
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "350000",
+        "1500000",
+        "1.500.000đ",
+        "7KQ2MX",
+        "AB23CD45",
+        "27/11/2026",
+        "A12",
+        "mã đơn 123456",
+        "10901234567",
+        "09012345678",
+        "184901234567",
+        "849012345678",
+        "1 090 123 4567",
+        "090 123 4567 8",
+    ],
+)
+def test_G3_preservesBusinessValuesAndLongerDigitSequences(text):
+    from vingo_agent.guardrails.input import redact
+
+    assert redact(text) == text
+
+
+def test_G3_redactsOnlyPhoneAndEmailInMixedText():
+    from vingo_agent.guardrails.input import redact
+
+    assert redact("SĐT 0901234567, email x@y.vn, vé 350000") == "SĐT [đã ẩn], email [đã ẩn], vé 350000"
+
+
+def test_G3_redactsWholeSignedUrlBeforeEmailAndKeepsLuhn():
+    from vingo_agent.guardrails.input import redact
+
+    assert redact("https://x.test/a.b+c@vingo.vn?sig=secret 4111 1111 1111 1111") == "[đã ẩn] [đã ẩn]"
