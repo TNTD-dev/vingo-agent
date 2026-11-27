@@ -13,7 +13,7 @@ Thiết kế `docs/VINGO_AGENT_DESIGN_V2.3.md` là nguồn sự thật. Đọc �
 | Model, fallback, giới hạn turn | 2 |
 | Eval, test case | 8 |
 
-Code lệch thiết kế: dừng lại và hỏi, rồi cập nhật thiết kế cùng lúc với code (cả bản ở `../vingo-backend/docs/agent/`).
+Code lệch thiết kế: dừng lại và hỏi, rồi cập nhật thiết kế cùng lúc với code. Thiết kế chỉ có một bản ở `docs/`; bản ở `../vingo-backend/docs/agent/` đã cũ, không sửa.
 API backend: `../vingo-backend/contracts/vingo-openapi.yaml`. Contract đổi thì chạy `scripts/sync_contract.py`.
 
 ## Xong việc khi

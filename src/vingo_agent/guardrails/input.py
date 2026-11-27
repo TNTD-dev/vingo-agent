@@ -1,4 +1,4 @@
-"""G2 kiểm input và G3 che bí mật trước mọi lưu trữ hoặc lời gọi model."""
+"""G2 kiểm input và G3 che bí mật, SĐT VN và email trước mọi lưu trữ hoặc lời gọi model."""
 
 import re
 import unicodedata
@@ -40,6 +40,12 @@ def _url(match):
 
 def redact(text: str) -> str:
     text = re.sub(r"https?://[^\s<>]+", _url, text, flags=re.I)
+    # URL có chữ ký phải được che trọn trước email có ký tự @.
+    text = re.sub(
+        r"[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+",
+        REDACTED,
+        text,
+    )
     text = re.sub(r"\bBearer\s+[^\s,;]+", REDACTED, text, flags=re.I)
     text = re.sub(r"\beyJ[\w-]*\.[\w-]+\.[\w-]+", REDACTED, text)
     text = re.sub(
@@ -48,4 +54,6 @@ def redact(text: str) -> str:
         text,
         flags=re.I,
     )
-    return re.sub(r"(?<!\w)(?:\d[ -]?){12,18}\d(?!\w)", _card, text)
+    # Giữ luật Luhn trước SĐT; không che giá, mã đơn/vé hoặc mọi dãy 6 số.
+    text = re.sub(r"(?<!\w)(?:\d[ -]?){12,18}\d(?!\w)", _card, text)
+    return re.sub(r"(?<![\w+])(?<!\d[ .-])(?:0|\+?84)(?:[ .-]?[0-9]){9}(?!\w)(?![ .-]?\d)", REDACTED, text)
