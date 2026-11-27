@@ -39,6 +39,8 @@ class OperationSpec:
     # READ trả kết quả đã lọc (có thể kèm block web), hoặc None khi chưa có bằng chứng.
     lookup: Callable[..., Awaitable[dict | tuple[dict, list] | None]] | None = None
     check_before: Callable[..., Awaitable[bool]] | None = None
+    # Sau lỗi mạng: dict = đã áp dụng, True = còn snapshot cũ và được gửi lại, None = chưa rõ.
+    reconcile_retry: Callable[..., Awaitable[dict | bool | None]] | None = None
     needs_form: bool = False
     confirm_phrase: Callable[[dict], str | None] | None = None
     result_blocks: Callable[[dict], list] | None = None

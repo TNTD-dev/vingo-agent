@@ -12,7 +12,9 @@ from vingo_agent.clients.backend import BackendClient
 from vingo_agent.persistence import repositories
 from vingo_agent.schemas.chat import VisibleAction
 
-ResourceType = Literal["EVENT", "SHOWTIME", "ZONE", "SEAT", "ORDER", "TICKET", "VENUE", "LAYOUT", "ACTION"]
+ResourceType = Literal[
+    "EVENT", "SHOWTIME", "ZONE", "SEAT", "ORDER", "TICKET", "VENUE", "LAYOUT", "ACTION", "PRICE_TIER"
+]
 
 
 class ToolError(Exception):
@@ -39,6 +41,7 @@ class TurnDeps:
     blocks: list[BaseModel] = field(default_factory=list)
     notices: list[dict[str, str]] = field(default_factory=list)
     admin_ticket_codes: dict[UUID, str] = field(default_factory=dict)
+    zone_price_preview: tuple[str, list[dict], str | None, dict] | None = None
 
 
 class ToolArgs(BaseModel):

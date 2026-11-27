@@ -15,12 +15,23 @@ from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
 from vingo_agent.actions import proposals as pending
 from vingo_agent.actions.proposals import Operation
+from vingo_agent.actions.specs.admin_updates import FOOTBALL_FIELDS, SHOWTIME_TIMES, read_target, snapshot, venue_city
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.schemas.blocks import ConfirmAction
 from vingo_agent.schemas.chat import Role
 from vingo_agent.tools import projections
 from vingo_agent.tools.admin_read import _operations_admin, _operations_read
 from vingo_agent.tools.base import ToolError, TurnDeps, fail, ok, require_ref
+from vingo_agent.tools.blocks import catalog_change_rows
+from vingo_agent.tools.catalog import (
+    PriceTierInput,
+    TicketPrice,
+    ZonePriceInput,
+    price_tiers,
+    rows,
+    timestamp,
+    zone_price_body,
+)
 
 SeatIdList = Annotated[list[UUID], Field(min_length=1, max_length=200)]
 
@@ -251,7 +262,10 @@ def _admin_proposal(operation: Operation):
             try:
                 if deps.principal.role != Role.ADMIN:
                     raise ToolError("FORBIDDEN")
-                path, body, display = await tool(ctx, *args, **kwargs)
+                path, body, display, *snapshot_fields = await tool(ctx, *args, **kwargs)
+                payload = {"path": path, "body": body}
+                if snapshot_fields:
+                    payload.update(snapshot_fields[0])
                 now = datetime.now(UTC)
                 expires_at = now + pending.DEFAULT_TTL
                 action_id, version = await pending.create(
@@ -260,7 +274,7 @@ def _admin_proposal(operation: Operation):
                     actor_id=deps.principal.user_id,
                     role=deps.principal.role,
                     operation=operation,
-                    payload={"path": path, "body": body},
+                    payload=payload,
                     display=display,
                     expires_at=expires_at,
                 )
@@ -268,7 +282,12 @@ def _admin_proposal(operation: Operation):
                 return fail(backend_operation, error)
             deps.blocks.append(
                 ConfirmAction(
-                    action_id=action_id, version=version, operation=operation, expires_at=expires_at, display=display
+                    action_id=action_id,
+                    version=version,
+                    operation=operation,
+                    expires_at=expires_at,
+                    display=display,
+                    rows=catalog_change_rows(display) if snapshot_fields else None,
                 )
             )
             return ok(
@@ -490,6 +509,268 @@ async def propose_admin_resend_ticket(ctx: RunContext[TurnDeps], ticket_id: UUID
         return fail(operation, error)
 
 
+def _changes(before, after):
+    return [{"field": field, "before": before.get(field), "after": value} for field, value in after.items()]
+
+
+def _update_payload(operation, path, target, body, *, scope=None):
+    before = snapshot(operation, target, body)
+    after = body
+    if operation == Operation.UPDATE_EVENT and body.get("category") == "CONCERT":
+        after = body | {field: None for field in FOOTBALL_FIELDS if before[field] is not None}
+    return path, body, {"changes": _changes(before, after)}, {"before": before, **(scope or {})}
+
+
+def _patch(**fields):
+    body = {field: value for field, value in fields.items() if value is not None}
+    if not body:
+        raise ToolError("INVALID_ARGUMENT")
+    return body
+
+
+def _editable_event(event):
+    status = event.get("status")
+    if status == "CANCELLED":
+        raise ToolError("EVENT_LOCKED")
+    if status not in {"DRAFT", "PUBLISHED"}:
+        raise ToolError("INVALID_TOOL_RESULT")
+    return status
+
+
+@_admin_proposal(Operation.UPDATE_VENUE)
+async def propose_update_venue(
+    ctx: RunContext[TurnDeps],
+    venue_id: UUID,
+    name: str | None = None,
+    address: str | None = None,
+    city: Annotated[str, Field(max_length=100)] | None = None,
+    district: str | None = None,
+    lat: Annotated[float, Field(strict=True, ge=-90, le=90)] | None = None,
+    lng: Annotated[float, Field(strict=True, ge=-180, le=180)] | None = None,
+    rules: str | None = None,
+) -> dict:
+    """Đề xuất cập nhật các trường được chọn của sân. → updateVenue"""
+    body = _patch(name=name, address=address, city=city, district=district, lat=lat, lng=lng, rules=rules)
+    for field, value in body.items():
+        if isinstance(value, str):
+            body[field] = value.strip()
+            if not body[field] and field in {"name", "address", "city"}:
+                raise ToolError("INVALID_ARGUMENT")
+    if (lat is not None and (type(lat) is bool or not -90 <= lat <= 90)) or (
+        lng is not None and (type(lng) is bool or not -180 <= lng <= 180)
+    ):
+        raise ToolError("INVALID_ARGUMENT")
+    if city is not None:
+        body["city"] = venue_city(body["city"])
+    await require_ref(ctx.deps, "VENUE", venue_id)
+    path = {"venue_id": str(venue_id)}
+    operation = Operation.UPDATE_VENUE
+    target, _ = await read_target(operation, backend=ctx.deps.backend, path=path)
+    return _update_payload(operation, path, target, body)
+
+
+@_admin_proposal(Operation.UPDATE_EVENT)
+async def propose_update_event(
+    ctx: RunContext[TurnDeps],
+    event_id: UUID,
+    title: Annotated[str, Field(min_length=1, max_length=200)] | None = None,
+    category: Literal["FOOTBALL", "CONCERT"] | None = None,
+    description: Annotated[str, Field(max_length=2000)] | None = None,
+    max_tickets_per_order: Annotated[int, Field(strict=True, ge=1, le=20)] | None = None,
+    seat_layout_id: UUID | None = None,
+    home_team: str | None = None,
+    away_team: str | None = None,
+    league: str | None = None,
+    round: str | None = None,
+    poster_mobile_url: AnyHttpUrl | None = None,
+    poster_desktop_url: AnyHttpUrl | None = None,
+) -> dict:
+    """Đề xuất sửa sự kiện DRAFT hoặc PUBLISHED; chỉ gửi trường admin yêu cầu đổi. → updateEvent"""
+    if title is not None and not title.strip():
+        raise ToolError("INVALID_ARGUMENT")
+    body = _patch(
+        title=title.strip() if title is not None else None,
+        category=category,
+        description=description,
+        max_tickets_per_order=max_tickets_per_order,
+        seat_layout_id=str(seat_layout_id) if seat_layout_id is not None else None,
+        home_team=home_team.strip() if home_team is not None else None,
+        away_team=away_team.strip() if away_team is not None else None,
+        league=league.strip() if league is not None else None,
+        round=round.strip() if round is not None else None,
+        poster_mobile_url=str(poster_mobile_url) if poster_mobile_url is not None else None,
+        poster_desktop_url=str(poster_desktop_url) if poster_desktop_url is not None else None,
+    )
+    await require_ref(ctx.deps, "EVENT", event_id)
+    if seat_layout_id is not None:
+        await require_ref(ctx.deps, "LAYOUT", seat_layout_id)
+    path = {"event_id": str(event_id)}
+    operation = Operation.UPDATE_EVENT
+    event, _ = await read_target(operation, backend=ctx.deps.backend, path=path)
+    status = _editable_event(event)
+    football_fields = body.keys() & set(FOOTBALL_FIELDS)
+    if football_fields and (
+        (category or event.get("category")) != "FOOTBALL" or not all(body[field] for field in football_fields)
+    ):
+        raise ToolError("INVALID_ARGUMENT")
+    old_layout = event.get("seat_layout_id")
+    layout_changed = seat_layout_id is not None and old_layout != str(seat_layout_id)
+    changing_selected_category = category is not None and category != event.get("category") and old_layout
+    if status == "PUBLISHED" and (layout_changed or changing_selected_category):
+        raise ToolError("EVENT_LOCKED")
+    if (
+        layout_changed
+        and old_layout
+        and any(show.get("seat_layout_id") == old_layout for show in rows(event, "showtimes"))
+    ):
+        raise ToolError("VALIDATION_ERROR")
+    return _update_payload(operation, path, event, body)
+
+
+@_admin_proposal(Operation.UPDATE_SHOWTIME)
+async def propose_update_showtime(
+    ctx: RunContext[TurnDeps],
+    event_id: UUID,
+    showtime_id: UUID,
+    seat_layout_id: UUID | None = None,
+    starts_at: AwareDatetime | None = None,
+    ends_at: AwareDatetime | None = None,
+    sale_opens_at: AwareDatetime | None = None,
+    sale_closes_at: AwareDatetime | None = None,
+) -> dict:
+    """Đề xuất sửa suất DRAFT hoặc SCHEDULED chưa mở bán. Dùng event_id từ sự kiện chứa suất. → updateShowtime"""
+    changes = _patch(
+        sale_opens_at=sale_opens_at,
+        sale_closes_at=sale_closes_at,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        seat_layout_id=seat_layout_id,
+    )
+    body = {
+        field: timestamp(value, "INVALID_ARGUMENT") if field in SHOWTIME_TIMES else str(value)
+        for field, value in changes.items()
+    }
+    await require_ref(ctx.deps, "EVENT", event_id)
+    await require_ref(ctx.deps, "SHOWTIME", showtime_id)
+    if seat_layout_id is not None:
+        await require_ref(ctx.deps, "LAYOUT", seat_layout_id)
+    path = {"showtime_id": str(showtime_id)}
+    scope = {"event_id": str(event_id)}
+    operation = Operation.UPDATE_SHOWTIME
+    show, event = await read_target(operation, backend=ctx.deps.backend, path=path, **scope)
+    _editable_event(event)
+    if show.get("status") not in {"DRAFT", "SCHEDULED"} or (
+        show["status"] == "SCHEDULED"
+        and datetime.fromisoformat(timestamp(show.get("sale_opens_at"))) <= datetime.now(UTC)
+    ):
+        raise ToolError("SHOWTIME_LOCKED")
+    if seat_layout_id is not None and event.get("seat_layout_id") != str(seat_layout_id):
+        raise ToolError("INVALID_SEAT_LAYOUT")
+    if body.keys() & set(SHOWTIME_TIMES):
+        opens, closes, starts, ends = (
+            datetime.fromisoformat(body[field] if field in body else timestamp(show.get(field)))
+            for field in SHOWTIME_TIMES
+        )
+        if not opens < closes <= starts < ends:
+            raise ToolError("INVALID_ARGUMENT")
+    return _update_payload(operation, path, show, body, scope=scope)
+
+
+@_admin_proposal(Operation.UPDATE_PRICE_TIERS)
+async def propose_update_price_tiers(ctx: RunContext[TurnDeps], event_id: UUID, tiers: list[PriceTierInput]) -> dict:
+    """Đề xuất thay toàn bộ danh sách hạng vé. Giữ ID hạng cũ khi đổi tên. → putPriceTiers"""
+    await require_ref(ctx.deps, "EVENT", event_id)
+    path = {"event_id": str(event_id)}
+    operation = Operation.UPDATE_PRICE_TIERS
+    event, _ = await read_target(operation, backend=ctx.deps.backend, path=path)
+    _editable_event(event)
+    before = price_tiers(event)
+    by_id = {item["id"]: item for item in before}
+    by_name = {item["name"]: item for item in before}
+    body = []
+    used_ids = set()
+    names = set()
+    for tier in tiers:
+        name = tier.name.strip()
+        if not name or name in names:
+            raise ToolError("INVALID_ARGUMENT")
+        names.add(name)
+        if tier.id is not None:
+            await require_ref(ctx.deps, "PRICE_TIER", tier.id)
+            current = by_id.get(str(tier.id))
+            if current is None:
+                raise ToolError("INVALID_REFERENCE")
+        else:
+            current = by_name.get(name)
+        item = {"name": name, "price": tier.price}
+        if current is not None:
+            identifier = current["id"]
+            if identifier in used_ids:
+                raise ToolError("INVALID_ARGUMENT")
+            used_ids.add(identifier)
+            item["id"] = identifier
+        color = tier.color if tier.color is not None else current and current["color"]
+        if color is not None:
+            item["color"] = color
+        body.append(item)
+    return path, body, {"changes": _changes({"price_tiers": before}, {"price_tiers": body})}, {"before": before}
+
+
+@_admin_proposal(Operation.ADD_TIER_PRICE)
+async def propose_add_tier_price(
+    ctx: RunContext[TurnDeps],
+    event_id: UUID,
+    tier_id: UUID,
+    price: TicketPrice,
+    effective_from: AwareDatetime | None = None,
+    reason: Annotated[str, Field(max_length=500)] | None = None,
+) -> dict:
+    """Đề xuất thêm phiên bản giá VND cho hạng vé, có thể hẹn giờ hiệu lực. → addSkuPrice"""
+    if type(price) is not int or not 0 <= price <= 4_611_686_018_427_387:
+        raise ToolError("INVALID_ARGUMENT")
+    await require_ref(ctx.deps, "EVENT", event_id)
+    await require_ref(ctx.deps, "PRICE_TIER", tier_id)
+    path = {"event_id": str(event_id), "tier_id": str(tier_id)}
+    operation = Operation.ADD_TIER_PRICE
+    tier, event = await read_target(operation, backend=ctx.deps.backend, path=path)
+    _editable_event(event)
+    effective = timestamp(effective_from, "INVALID_ARGUMENT") if effective_from is not None else None
+    if effective is not None and any(
+        timestamp(item.get("effective_from")) == effective for item in rows(tier, "prices")
+    ):
+        raise ToolError("VALIDATION_ERROR")
+    body = _patch(price=price, effective_from=effective, reason=(reason.strip() or None) if reason else None)
+    before = snapshot(operation, tier, body)
+    tier_name = tier.get("name")
+    if not isinstance(tier_name, str) or not tier_name.strip():
+        raise ToolError("INVALID_TOOL_RESULT")
+    changes = _changes(before, body | {"effective_from": effective or "Ngay khi xác nhận"})
+    return path, body, {"changes": changes, "tier_name": tier_name}, {"before": before}
+
+
+@_admin_proposal(Operation.UPDATE_ZONE_PRICES)
+async def propose_update_zone_prices(
+    ctx: RunContext[TurnDeps], event_id: UUID, assignments: list[ZonePriceInput]
+) -> dict:
+    """Đề xuất thay toàn bộ cấu hình khu đã xem trước bằng get_zone_prices_preview trong lượt này. → putZonePrices"""
+    body = zone_price_body(assignments)
+    await require_ref(ctx.deps, "EVENT", event_id)
+    preview = ctx.deps.zone_price_preview
+    if preview is None or preview[:2] != (str(event_id), body):
+        raise ToolError("INVALID_ARGUMENT")
+    path = {"event_id": str(event_id)}
+    operation = Operation.UPDATE_ZONE_PRICES
+    event, _ = await read_target(operation, backend=ctx.deps.backend, path=path)
+    _editable_event(event)
+    if event.get("seat_layout_id") != preview[2]:
+        raise ToolError("STALE_PROPOSAL")
+    before = snapshot(operation, event, body)
+    changes = _changes({"zone_prices": before}, {"zone_prices": body})
+    tier_names = {tier["id"]: tier["name"] for tier in price_tiers(event)}
+    display = {"changes": changes, "preview": preview[3], "tier_names": tier_names}
+    return path, body, display, {"before": before, "layout_id": preview[2]}
+
+
 BUYER_PROPOSAL_TOOLS = (
     propose_hold_seats,
     propose_create_payment,
@@ -498,6 +779,12 @@ BUYER_PROPOSAL_TOOLS = (
 )
 ADMIN_PROPOSAL_TOOLS = (
     propose_create_venue,
+    propose_update_venue,
+    propose_update_event,
+    propose_update_showtime,
+    propose_update_price_tiers,
+    propose_add_tier_price,
+    propose_update_zone_prices,
     propose_create_event,
     propose_create_showtime,
     propose_publish_event,
