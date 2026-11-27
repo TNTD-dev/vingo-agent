@@ -199,7 +199,13 @@ async def test_admin_layout_tree_preserves_version_order_and_records_refs(admin)
     assert data["items"][0]["overview_id"] == OVERVIEW
     assert data["items"][0]["zones"][0]["zone_id"] == ZONE
     assert not PRIVATE.keys() & data["items"][0].keys()
-    assert admin.refs == {("VENUE", VENUE), ("LAYOUT", LAYOUT), ("LAYOUT", old_id), ("ZONE", ZONE)}
+    assert admin.refs == {
+        ("VENUE", VENUE),
+        ("LAYOUT", LAYOUT),
+        ("LAYOUT", old_id),
+        ("ZONE", ZONE),
+        ("OVERVIEW", OVERVIEW),
+    }
     block = admin.deps.blocks[-1]
     assert block.kind is AdminTableKind.LAYOUTS
     assert block.columns == ["layout_id", "name", "version", "status", "overview_name"]

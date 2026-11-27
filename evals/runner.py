@@ -34,12 +34,7 @@ from vingo_agent.config import get_settings
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.schemas.chat import Role
 
-UNRELEASED = {
-    "propose_cancel_event": "NEEDS_PLATFORM",
-    "propose_cancel_showtime": "NEEDS_PLATFORM",
-    "propose_seat_layout": "NEEDS_PLATFORM",
-    "propose_update_event_visibility": "NEEDS_BACKEND",
-}
+UNRELEASED = {}
 
 
 def required_tools(case):

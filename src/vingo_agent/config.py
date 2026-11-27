@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # Kill switch (V2.3 mục 9): tool trong danh sách không được đăng ký với model.
     agent_disabled_tools: Annotated[frozenset[str], NoDecode] = frozenset()
+    agent_admin_workflows_enabled: bool = False
     log_level: str = "INFO"
     otel_exporter_endpoint: str = ""
     phoenix_api_key: str = ""

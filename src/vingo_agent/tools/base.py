@@ -13,7 +13,18 @@ from vingo_agent.persistence import repositories
 from vingo_agent.schemas.chat import VisibleAction
 
 ResourceType = Literal[
-    "EVENT", "SHOWTIME", "ZONE", "SEAT", "ORDER", "TICKET", "VENUE", "LAYOUT", "ACTION", "PRICE_TIER"
+    "EVENT",
+    "SHOWTIME",
+    "ZONE",
+    "SEAT",
+    "ORDER",
+    "TICKET",
+    "VENUE",
+    "LAYOUT",
+    "ACTION",
+    "PRICE_TIER",
+    "OVERVIEW",
+    "UPLOAD",
 ]
 
 

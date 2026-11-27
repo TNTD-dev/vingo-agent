@@ -222,6 +222,9 @@ async def _catalog_list(ctx, operation, resource_type, key, cursor, limit, *, pa
         await record_refs(ctx.deps, resource_type, [UUID(item[key]) for item in data["items"]])
         if operation == "getAdminLayoutTree":
             await record_refs(
+                ctx.deps, "OVERVIEW", [UUID(item["overview_id"]) for item in data["items"] if item.get("overview_id")]
+            )
+            await record_refs(
                 ctx.deps, "ZONE", [UUID(zone["zone_id"]) for item in data["items"] for zone in item["zones"]]
             )
         if block is not None:

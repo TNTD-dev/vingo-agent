@@ -64,6 +64,8 @@ def history_messages(summary, rows):
                 )
             else:
                 text = content.get("text", json.dumps(content, ensure_ascii=False))
+                if kind == "USER" and content.get("upload_ids"):
+                    text += "\n" + data_message("tep_dinh_kem", json.dumps({"upload_ids": content["upload_ids"]}))
                 parts.append(
                     ModelResponse(parts=[TextPart(text)])
                     if kind == "ASSISTANT"

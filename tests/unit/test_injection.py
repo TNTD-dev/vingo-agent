@@ -12,7 +12,7 @@ from vingo_agent.schemas.chat import Role
 @pytest.mark.parametrize("role,section", [(Role.BUYER, "3.1"), (Role.ADMIN, "3.2")])
 def test_prompts_matchDesignAndContainNoSecrets(role, section):
     prompt = load_prompt(role)
-    design = (Path(__file__).resolve().parents[2] / "docs/VINGO_AGENT_DESIGN_V2.3.md").read_text()
+    design = (Path(__file__).resolve().parents[2] / "docs/VINGO_AGENT_DESIGN_V2.3.md").read_text(encoding="utf-8")
     expected = design.split(f"### {section}", 1)[1].split("```text\n", 1)[1].split("```", 1)[0]
     assert prompt == expected
     forbidden = (

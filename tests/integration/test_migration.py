@@ -2,14 +2,17 @@
 
 import os
 import subprocess
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from vingo_agent.persistence import uploads
+
 pytestmark = pytest.mark.integration
 
-TABLES = {"conversation", "turn", "message", "summary", "resource_ref", "pending_action", "execution"}
+TABLES = {"conversation", "turn", "message", "summary", "resource_ref", "pending_action", "execution", "chat_upload"}
 
 
 @pytest.fixture(scope="module")
@@ -22,7 +25,7 @@ def database_url():
         yield url
 
 
-async def test_upgradeHead_createsSevenAgentTables(database_url):
+async def test_upgradeHead_createsAgentTables(database_url):
     engine = create_async_engine(database_url)
     async with engine.connect() as conn:
         rows = await conn.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'agent'"))
@@ -49,6 +52,26 @@ async def test_onePendingPerConversation_isEnforced(database_url):
         async with engine.begin() as conn:
             await conn.execute(insert, {"c": conversation_id})
     await engine.dispose()
+
+
+async def test_chat_upload_preserves_bytes_and_enforces_owner_and_expiry(database_url, monkeypatch):
+    engine = create_async_engine(database_url)
+    monkeypatch.setattr(uploads, "transaction", engine.begin)
+    owner, other_owner = uuid4(), uuid4()
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" />'
+    try:
+        upload_id = await uploads.save_upload(owner, svg)
+        assert upload_id is not None
+        assert await uploads.get_uploads(owner, [upload_id], with_content=True) == {upload_id: svg}
+        assert await uploads.get_uploads(other_owner, [upload_id], with_content=True) == {}
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE agent.chat_upload SET expires_at = now() - interval '1 second' WHERE id = :id"),
+                {"id": upload_id},
+            )
+        assert await uploads.get_uploads(owner, [upload_id], with_content=True) == {}
+    finally:
+        await engine.dispose()
 
 
 async def test_inputUsageMigration_roundTripsWithoutChangingExistingTurns(database_url):

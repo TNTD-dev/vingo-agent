@@ -46,6 +46,7 @@ class SendMessageRequest(Strict):
     text: str
     selection: Selection | None = None
     visible_action: VisibleAction | None = None
+    upload_ids: list[WireUUID] = Field(default_factory=list, max_length=4, exclude_if=lambda ids: not ids)
 
 
 class Buyer(Strict):
