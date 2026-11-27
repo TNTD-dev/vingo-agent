@@ -2,6 +2,7 @@
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
@@ -14,7 +15,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from vingo_agent.agents import factory, orchestrator
 from vingo_agent.api.app import create_app
 from vingo_agent.persistence import repositories as repo
-from vingo_agent.tools.base import TurnDeps
+from vingo_agent.tools import blocks
+from vingo_agent.tools.base import TurnDeps, ok
 
 pytest_plugins = ["tests.integration.test_migration"]
 pytestmark = pytest.mark.integration
@@ -35,11 +37,11 @@ async def test_routes_persistFilteredHistoryAndReplayCommand(database_url, monke
     async def search(ctx: RunContext[TurnDeps]):
         """Tool giả chỉ đăng ký trong test."""
         result = await ctx.deps.backend.read("searchEvents")
-        return {
-            "ok": True,
-            "data": {"items": [{"event_id": result["items"][0]["id"], "title": "Demo"}]},
-            "meta": {"operation": "searchEvents"},
-        }
+        data = {"items": [{"event_id": result["items"][0]["id"], "title": "Demo"}]}
+        block = blocks.build_block("searchEvents", data, role="BUYER")
+        if block is not None:
+            ctx.deps.blocks.append(block)
+        return ok("searchEvents", data, observed_at=datetime.now(UTC))
 
     async def respond(messages, info):
         nonlocal calls

@@ -438,6 +438,15 @@ async def action_rows(agent_db, cid):
         await conn.close()
 
 
+def step_actions(step, tools, action, blocks):
+    """Chọn thẻ để tra execution bước này và thẻ hiển thị cho bước sau."""
+    latest = next((block for block in reversed(blocks) if block["type"] == "ConfirmAction"), action)
+    confirms = "confirm" in step or (
+        step.get("visible_action") == "latest" and any(tool["name"] == "confirm_pending_action" for tool in tools)
+    )
+    return (action if confirms else latest), latest
+
+
 async def real_case(case, t0, *, app=None, fixture_reset=reset, backend_snapshot=snapshot):
     reason = blocked_reason(case)
     if reason:
@@ -528,8 +537,6 @@ async def real_case(case, t0, *, app=None, fixture_reset=reset, backend_snapshot
                         block = event["payload"]
                         block = {"type": block["type"], **block.get("payload", {})} if "payload" in block else block
                         blocks.append(block)
-                        if block["type"] == "ConfirmAction":
-                            action = block
                 terminal = next((e for e in reversed(events) if e["type"].startswith("turn.")), None)
                 observed = {
                     "http_status": response.status_code,
@@ -551,16 +558,18 @@ async def real_case(case, t0, *, app=None, fixture_reset=reset, backend_snapshot
                 if response.status_code >= 400:
                     observed["errors"].append(json.loads(raw).get("code"))
                 execution = None
-                if action:
+                execution_action, next_action = step_actions(step, captured["tools"], action, blocks)
+                if execution_action:
                     conn = await connect(agent_db)
                     try:
                         execution = await conn.fetchrow(
                             "SELECT e.state,e.error_code,p.confirmed_via FROM agent.execution e "
                             "JOIN agent.pending_action p ON p.id=e.action_id WHERE p.id=$1",
-                            action["action_id"],
+                            execution_action["action_id"],
                         )
                     finally:
                         await conn.close()
+                action = next_action
                 if execution:
                     observed["execution"] = dict(execution)
                     if execution["error_code"]:

@@ -379,7 +379,12 @@ async def run_turn(*, conversation_id, request, principal):
                                                     )
                                                     if isinstance(result, dict) and result.get("ok") is True:
                                                         amounts.update(amounts_in(result))
-                                                    if isinstance(result, dict) and result.get("ok"):
+                                                    # Tool Buyer đã tự thêm block vào deps.blocks.
+                                                    if (
+                                                        principal.role != "BUYER"
+                                                        and isinstance(result, dict)
+                                                        and result.get("ok")
+                                                    ):
                                                         block = build_block(
                                                             result.get("meta", {}).get("operation"),
                                                             result["data"],

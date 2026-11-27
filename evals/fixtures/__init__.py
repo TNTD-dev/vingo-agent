@@ -13,6 +13,9 @@ import asyncpg
 
 from evals.case_io import VN, time_variables
 
+# Hash bcrypt giả cho A1, không có mật khẩu tương ứng đã biết. Eval dùng login_session.
+_ADMIN_PASSWORD_HASH = "$2a$10$og2ENJU/dRNsxJBSFZUbM.mgCYBloRpi8zb.kr6ndTlfF2BqHjWZ2"
+
 ALIASES = {
     key: str(uuid5(NAMESPACE_URL, "vingo-eval:" + key))
     for key in (
@@ -110,13 +113,14 @@ async def reset(backend_url, backend_db, agent_db, t0: datetime, variant="seed")
             await conn.execute("TRUNCATE " + names)
             for actor in sessions:
                 await conn.execute(
-                    "INSERT INTO user_account(id,email,full_name,google_sub,role,email_verified_at) "
-                    "VALUES($1,$2,$3,$4,$5,now())",
+                    "INSERT INTO user_account(id,email,full_name,google_sub,role,email_verified_at,password_hash) "
+                    "VALUES($1,$2,$3,$4,$5,now(),$6)",
                     ids[actor],
                     actor.lower() + "@example.invalid",
                     actor,
                     "eval-" + actor,
                     "ADMIN" if actor == "A1" else "BUYER",
+                    _ADMIN_PASSWORD_HASH if actor == "A1" else None,
                 )
                 await conn.execute(
                     "INSERT INTO login_session(user_id,token_hash,expires_at) VALUES($1,$2,$3)",
