@@ -1,95 +1,282 @@
-from uuid import UUID
+"""Gọi ghi sau CAS; không giữ transaction qua HTTP, không gọi model."""
+
+import logging
+import time
+from hashlib import sha256
+from inspect import signature
+from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from vingo_agent.actions.proposals import BACKEND_OPERATION, Operation
+from vingo_agent.actions.registry import LookupMode, get_spec
+from vingo_agent.observability.logging import log_event
+from vingo_agent.observability.tracing import span
 from vingo_agent.persistence.db import transaction
-from vingo_agent.persistence.models import execution, pending_action, resource_ref
+from vingo_agent.persistence.models import conversation, execution, message, pending_action, resource_ref, turn
 from vingo_agent.schemas.errors import BackendErrorCode
 from vingo_agent.tools.base import ToolError
 
-CATALOG_RETRY = frozenset(
-    {
-        Operation.PUBLISH_EVENT,
-        Operation.BLOCK_SEATS,
-        Operation.UNBLOCK_SEATS,
-    }
-)
 
-CATALOG_RESULT_ID = {
-    Operation.CREATE_VENUE: "venue_id",
-    Operation.CREATE_EVENT: "event_id",
-    Operation.CREATE_SHOWTIME: "showtime_id",
-    Operation.PUBLISH_EVENT: "event_id",
-}
-
-CATALOG_OPERATIONS = frozenset(CATALOG_RESULT_ID) | CATALOG_RETRY
+def _json_object(response: httpx.Response) -> dict:
+    try:
+        data = response.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
-async def run(action_id, *, backend, buyer=None) -> tuple[str, str | None, dict]:
-    """Thực thi sau khi luồng xác nhận đã giành quyền tạo execution RUNNING."""
-    async with transaction() as connection:
-        row = (
-            await connection.execute(
-                select(
-                    pending_action.c.conversation_id,
-                    pending_action.c.operation,
-                    pending_action.c.payload,
-                    execution.c.idempotency_key,
-                    execution.c.state,
-                    execution.c.error_code,
-                    execution.c.result,
-                )
-                .select_from(pending_action.join(execution, pending_action.c.id == execution.c.action_id))
-                .where(
-                    pending_action.c.id == action_id,
-                    pending_action.c.state == "CONFIRMED",
-                    pending_action.c.role == "ADMIN",
+async def execute(operation, *, backend, payload, idempotency_key, buyer=None, lookup_only=False, web_blocks=None):
+    spec = get_spec(operation)
+    from vingo_agent.config import get_settings
+
+    if spec.tool_name in get_settings().agent_disabled_tools:
+        # Tra lại: lần gửi trước có thể đã ghi → giữ UNKNOWN, không gửi thêm.
+        # Lần gửi đầu: chưa gửi gì → FAILED, để lần tra sau không gửi thật một thao tác đã bị tắt.
+        return ("UNKNOWN", "EXECUTION_UNKNOWN", {}) if lookup_only else ("FAILED", "FORBIDDEN", {})
+
+    async def send(*, lookup_request=False):
+        try:
+            request = spec.build_lookup_request(payload) if lookup_request else spec.build_request(payload, buyer)
+            return await backend.write(spec.backend_operation, **request, idempotency_key=idempotency_key)
+        except httpx.RequestError:
+            return None
+
+    def outcome(response):
+        if response is not None and response.is_success:
+            try:
+                data = _json_object(response)
+                result = spec.project(data)
+                if spec.web_blocks is not None:
+                    blocks = spec.web_blocks(data)
+                    if web_blocks is not None:
+                        web_blocks.extend(blocks)
+                return "SUCCEEDED", None, result
+            except ToolError:
+                if spec.web_blocks is None:
+                    raise
+                return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+            except (ValueError, TypeError, KeyError):
+                return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+        if response is not None and response.is_client_error:
+            code = _json_object(response).get("code")
+            code = (
+                code
+                if isinstance(code, str) and code in {item.value for item in BackendErrorCode}
+                else "VALIDATION_ERROR"
+            )
+            return "FAILED", code, {}
+        return None
+
+    if not lookup_only:
+        if spec.check_before is not None:
+            try:
+                valid = await spec.check_before(backend=backend, payload=payload)
+            except (httpx.RequestError, ToolError):
+                # Chưa gửi ghi: không để recovery hiểu nhầm là đã gửi và retry bỏ qua snapshot.
+                return "FAILED", "BACKEND_UNAVAILABLE", {}
+            if not valid:
+                return "FAILED", "STALE_PROPOSAL", {}
+        result = outcome(await send())
+        if result is not None:
+            return result
+    with span("lookup", operation=operation, outcome="UNKNOWN") as trace:
+        if spec.lookup_mode == LookupMode.RETRY:
+            if lookup_only and spec.check_before is not None:
+                try:
+                    if not await spec.check_before(backend=backend, payload=payload):
+                        return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+                except (httpx.RequestError, ToolError):
+                    return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+            # Không có buyer khi mở lại hội thoại: tuyệt đối không tái dựng form từ DB.
+            if spec.build_lookup_request is not None or not spec.needs_form or buyer is not None:
+                result = outcome(await send(lookup_request=spec.build_lookup_request is not None))
+                if result is not None:
+                    trace.set_attribute("outcome", result[0])
+                    return result
+        elif spec.lookup_mode == LookupMode.READ:
+            try:
+                result = await spec.lookup(backend=backend, payload=payload, idempotency_key=idempotency_key)
+            except (httpx.RequestError, ToolError):
+                result = None
+            if result is not None:
+                if isinstance(result, tuple):
+                    result, blocks = result
+                    if web_blocks is not None:
+                        web_blocks.extend(blocks)
+                trace.set_attribute("outcome", "SUCCEEDED")
+                return "SUCCEEDED", None, result
+        return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+
+
+async def execute_admin_catalog(operation, *, backend, payload, idempotency_key):
+    """Giữ entry point KAN-201 cho caller/test cũ; thực thi qua spec."""
+    return await execute(operation, backend=backend, payload=payload, idempotency_key=idempotency_key)
+
+
+async def load(action_id):
+    async with transaction() as conn:
+        return (
+            (
+                await conn.execute(
+                    select(
+                        pending_action,
+                        execution.c.idempotency_key,
+                        execution.c.state.label("execution_state"),
+                        execution.c.error_code,
+                        execution.c.result,
+                        execution.c.started_at,
+                    )
+                    .join(execution, pending_action.c.id == execution.c.action_id)
+                    .where(pending_action.c.id == action_id)
                 )
             )
-        ).one_or_none()
+            .mappings()
+            .one_or_none()
+        )
 
-    if row is None:
-        raise ToolError("ACTION_NOT_PENDING")
-    operation = Operation(row.operation)
-    if operation not in CATALOG_OPERATIONS:
-        raise NotImplementedError
-    if row.state != "RUNNING":
-        return row.state, row.error_code, row.result or {}
 
-    status, code, ids = await execute_admin_catalog(
-        operation, backend=backend, payload=row.payload, idempotency_key=row.idempotency_key
-    )
-
-    async with transaction() as connection:
-        saved = await connection.scalar(
+async def save(action_id, row, outcome, *, expected, backend=None, web_blocks=()):
+    status, code, result = outcome
+    spec = get_spec(row["operation"])
+    async with transaction() as conn:
+        # Cùng thứ tự khóa cha → con với tạo/confirm để tránh deadlock.
+        await conn.execute(
+            select(conversation.c.id).where(conversation.c.id == row["conversation_id"]).with_for_update()
+        )
+        saved = await conn.scalar(
             update(execution)
-            .where(execution.c.action_id == action_id, execution.c.state == "RUNNING")
-            .values(state=status, error_code=code, result=ids, finished_at=func.now())
+            .where(execution.c.action_id == action_id, execution.c.state == expected)
+            .values(state=status, error_code=code, result=result, finished_at=func.now())
             .returning(execution.c.action_id)
         )
         if saved is None:
-            current = (
-                await connection.execute(
-                    select(execution.c.state, execution.c.error_code, execution.c.result).where(
-                        execution.c.action_id == action_id
+            current = (await conn.execute(select(execution).where(execution.c.action_id == action_id))).mappings().one()
+            return current["state"], current["error_code"], current["result"] or {}
+        ids = {}
+        if status == "SUCCEEDED":
+            for field, ref_type in spec.result_refs.items():
+                if field in result:
+                    value = UUID(str(result[field]))
+                    ids[field] = str(value)
+                    await conn.execute(
+                        pg_insert(resource_ref)
+                        .values(conversation_id=row["conversation_id"], resource_type=ref_type, resource_id=value)
+                        .on_conflict_do_nothing()
                     )
-                )
-            ).one()
-            return current.state, current.error_code, current.result or {}
-        for field, value in ids.items():
-            await connection.execute(
-                insert(resource_ref)
-                .values(
-                    conversation_id=row.conversation_id,
-                    resource_type=field.removesuffix("_id").upper(),
-                    resource_id=UUID(value),
-                )
-                .on_conflict_do_nothing()
+        seq = await conn.scalar(
+            select(func.coalesce(func.max(message.c.seq), 0)).where(message.c.conversation_id == row["conversation_id"])
+        )
+        content = {"operation": row["operation"], "status": status, "ids": ids}
+        if code:
+            content["code"] = code
+        from vingo_agent.actions.confirm import result_blocks
+
+        blocks = result_blocks(action_id, row["operation"], outcome)
+        final = {"text": "", "blocks": [b.model_dump(mode="json") for b in (*blocks, *web_blocks)]}
+        run_hook = status == "SUCCEEDED" and spec.after_success is not None
+        # Mỗi transition có bản ghi bất biến để event UNKNOWN cũ giữ đúng block lúc đó.
+        result_turn = await conn.scalar(
+            insert(turn)
+            .values(
+                conversation_id=row["conversation_id"],
+                command_id=uuid4(),
+                command_hash=sha256(str(action_id).encode()).hexdigest(),
+                state="RUNNING" if run_hook else "COMPLETED",
+                final_text_and_blocks=final,
+                finished_at=None if run_hook else func.now(),
             )
-    return status, code, ids
+            .returning(turn.c.id)
+        )
+        await conn.execute(
+            insert(message).values(
+                conversation_id=row["conversation_id"],
+                seq=seq + 1,
+                turn_id=result_turn,
+                kind="SYSTEM_EVENT",
+                content=content,
+            )
+        )
+    if run_hook:
+        # Thao tác ghi đã SUCCEEDED và đã commit: lỗi của bước phụ (vd tự tạo đề xuất thanh toán sau hold)
+        # không được biến kết quả thành lỗi 500 hay để turn kẹt RUNNING. Ghi log và trả kết quả thật.
+        try:
+            # Hook cũ giữ nguyên chữ ký. Hook cần snapshot có thể nhận thêm context.
+            extra = {"context": (row, web_blocks)} if "context" in signature(spec.after_success).parameters else {}
+            additions = await spec.after_success(
+                action_id=action_id, conversation_id=row["conversation_id"], result=result, backend=backend, **extra
+            )
+            if isinstance(additions, tuple):
+                more_blocks, notices = additions
+                final["blocks"].extend(b.model_dump(mode="json") for b in more_blocks)
+                if notices:
+                    final["notices"] = notices
+        except Exception as exc:
+            log_event(
+                logging.getLogger(__name__),
+                "action.after_success_failed",
+                action_id=str(action_id),
+                operation=row["operation"],
+                outcome="FAILED",
+                error_code=type(exc).__name__,
+            )
+        finally:
+            async with transaction() as conn:
+                await conn.execute(
+                    update(turn)
+                    .where(turn.c.id == result_turn)
+                    .values(state="COMPLETED", final_text_and_blocks=final, finished_at=func.now())
+                )
+    return outcome
+
+
+async def run(action_id, *, backend, buyer=None):
+    row = await load(action_id)
+    if row is None or row["state"] != "CONFIRMED":
+        raise ToolError("ACTION_NOT_PENDING")
+    if row["execution_state"] != "RUNNING":
+        return row["execution_state"], row["error_code"], row["result"] or {}
+    started = time.monotonic()
+    web_blocks = []
+    outcome = await execute(
+        row["operation"],
+        backend=backend,
+        payload=row["payload"],
+        idempotency_key=row["idempotency_key"],
+        buyer=buyer,
+        web_blocks=web_blocks,
+    )
+    outcome = await save(action_id, row, outcome, expected="RUNNING", backend=backend, web_blocks=web_blocks)
+    log_event(
+        logging.getLogger(__name__),
+        "action.executed",
+        action_id=str(action_id),
+        operation=row["operation"],
+        outcome=outcome[0],
+        duration_ms=(time.monotonic() - started) * 1000,
+    )
+    return outcome
+
+
+async def load_web_turn(action_id, conversation_id):
+    # command_hash của turn SYSTEM_EVENT định danh action, kể cả khi confirm dùng command_id mới.
+    async with transaction() as conn:
+        return (
+            (
+                await conn.execute(
+                    select(turn.c.state, turn.c.final_text_and_blocks)
+                    .where(
+                        turn.c.conversation_id == conversation_id,
+                        turn.c.command_hash == sha256(str(action_id).encode()).hexdigest(),
+                    )
+                    .order_by(turn.c.id.desc())
+                    .limit(1)
+                )
+            )
+            .mappings()
+            .first()
+        )
 
 
 async def execute_admin_resend(*, backend, payload: dict) -> tuple[str, str | None, dict]:
@@ -123,58 +310,3 @@ async def execute_admin_resend(*, backend, payload: dict) -> tuple[str, str | No
         code = candidate if isinstance(candidate, str) and candidate in allowed else "VALIDATION_ERROR"
         return "FAILED", code, {}
     return "UNKNOWN", "EXECUTION_UNKNOWN", {}
-
-
-def _json_object(response: httpx.Response) -> dict:
-    try:
-        data = response.json()
-    except ValueError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-async def execute_admin_catalog(
-    operation: Operation,
-    *,
-    backend,
-    payload: dict,
-    idempotency_key: UUID,
-) -> tuple[str, str | None, dict]:
-    operation_id = BACKEND_OPERATION[operation]
-
-    async def send() -> httpx.Response | None:
-        try:
-            return await backend.write(
-                operation_id,
-                path=payload["path"],
-                body=payload["body"],
-                idempotency_key=idempotency_key,
-            )
-        except httpx.TransportError:
-            return None
-
-    response = await send()
-
-    if response is not None and response.is_client_error:
-        code = _json_object(response).get("code")
-        return "FAILED", code if isinstance(code, str) else "VALIDATION_ERROR", {}
-
-    if response is None or response.is_server_error:
-        if operation in CATALOG_RETRY:
-            response = await send()
-
-    if response is None or not response.is_success:
-        return "UNKNOWN", "EXECUTION_UNKNOWN", {}
-
-    id_field = CATALOG_RESULT_ID.get(operation)
-    if id_field is None:
-        return "SUCCEEDED", None, {}
-
-    raw_id = _json_object(response).get("id")
-    if not isinstance(raw_id, str):
-        return "SUCCEEDED", None, {}
-    try:
-        resource_id = UUID(raw_id)
-    except ValueError:
-        return "SUCCEEDED", None, {}
-    return "SUCCEEDED", None, {id_field: str(resource_id)}

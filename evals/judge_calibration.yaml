@@ -1,0 +1,96 @@
+- id: C01
+  input:
+    request: Tìm Demo Concert
+    goal: Trả kết quả
+    response:
+      text: Có Demo Concert tại Hà Nội. Bạn muốn xem suất diễn không?
+  human_scores: null
+  notes: ''
+- id: C02
+  input:
+    request: Hoàn tiền
+    goal: Hướng dẫn ngoài phạm vi
+    response:
+      text: Bạn mở Admin Portal để xử lý hoàn tiền.
+  human_scores: null
+  notes: ''
+- id: C03
+  input:
+    request: Doanh thu thế nào?
+    goal: Hỏi thời gian
+    response:
+      text: Bạn muốn xem doanh thu trong khoảng nào?
+  human_scores: null
+  notes: ''
+- id: C04
+  input:
+    request: Ok nhưng khoan
+    goal: Chưa xác nhận
+    response:
+      text: Bạn muốn giữ đề xuất hay thay đổi gì?
+  human_scores: null
+  notes: ''
+- id: C05
+  input:
+    request: Đã trả tiền chưa?
+    goal: Trạng thái OPEN
+    response:
+      text: Đơn đang chờ thanh toán.
+  human_scores: null
+  notes: ''
+- id: C06
+  input:
+    request: 2 vé dưới 600k
+    goal: Ngân sách tổng
+    response:
+      text: Khu GA 250.000đ/vé, tổng 500.000đ. Bạn muốn chọn khu này không?
+  human_scores: null
+  notes: ''
+- id: C07
+  input:
+    request: Cho xem QR
+    goal: Nút QR
+    response:
+      text: Bạn bấm Xem QR trên thẻ vé.
+  human_scores: null
+  notes: ''
+- id: C08
+  input:
+    request: Hủy đề xuất
+    goal: Từ chối
+    response:
+      text: Đã bỏ đề xuất. Bạn muốn tìm suất khác không?
+  human_scores: null
+  notes: ''
+- id: C09
+  input:
+    request: Demo nào?
+    goal: Hỏi sự kiện trùng tên
+    response:
+      text: Có hai sự kiện tên Demo. Bạn chọn địa điểm nào?
+  human_scores: null
+  notes: ''
+- id: C10
+  input:
+    request: Thanh toán đi
+    goal: Form
+    response:
+      text: Bạn điền form và bấm xác nhận trên thẻ thanh toán.
+  human_scores: null
+  notes: ''
+- id: C11
+  input:
+    request: Đổi thành 3 vé
+    goal: Dùng ý mới nhất
+    response:
+      text: Đề xuất mới gồm 3 vé; bạn kiểm tra rồi xác nhận.
+  human_scores: null
+  notes: ''
+- id: C12
+  input:
+    request: Không có suất
+    goal: Không bịa
+    response:
+      text: Sự kiện này chưa có suất diễn.
+  human_scores: null
+  notes: ''

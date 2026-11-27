@@ -60,6 +60,7 @@ class ConfirmRequest(Strict):
     command_id: WireUUID
     version: int = Field(ge=1)
     buyer: Buyer | None = None
+    confirm_phrase: str | None = None
 
 
 class RejectRequest(Strict):

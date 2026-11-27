@@ -4,51 +4,241 @@ Mỗi tool: kiểm Ref + điều kiện (đọc lại backend nếu cần) → a
 → trả {"status": "PROPOSED", "action_id", "expires_at"}. Tối đa một đề xuất mỗi turn.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import AnyHttpUrl, AwareDatetime, Field
 from pydantic_ai import RunContext
+from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
 from vingo_agent.actions import proposals as pending
 from vingo_agent.actions.proposals import Operation
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.schemas.blocks import ConfirmAction
 from vingo_agent.schemas.chat import Role
+from vingo_agent.tools import projections
 from vingo_agent.tools.admin_read import _operations_admin, _operations_read
 from vingo_agent.tools.base import ToolError, TurnDeps, fail, ok, require_ref
 
-SeatIds = list[UUID]
 SeatIdList = Annotated[list[UUID], Field(min_length=1, max_length=200)]
 
 
 # ---- Buyer
+async def _buyer_read(backend, operation, *, path=None, query=None, requested=None):
+    raw = await backend.read(operation, path=path, query=query)
+    data, _ = projections.project(operation, raw, role="BUYER", requested=requested)
+    return data
+
+
+async def _items(backend, operation, *, requested=None, **query):
+    seen = set()
+    while True:
+        page = await _buyer_read(backend, operation, query=query, requested=requested)
+        for item in page["items"]:
+            yield item
+        cursor = page.get("next_cursor")
+        if not cursor:
+            return
+        if cursor in seen:
+            raise ToolError("INVALID_TOOL_RESULT")
+        seen.add(cursor)
+        query["cursor"] = cursor
+
+
+async def _showtime_labels(ctx, showtime_id):
+    """Nhãn hiển thị là tùy chọn khi lịch sử đã rút gọn hoặc sự kiện không đọc được."""
+    calls = {}
+    try:
+        for message in ctx.messages:
+            for part in message.parts:
+                if not isinstance(part, (ToolCallPart, ToolReturnPart)) or part.tool_name != "list_event_showtimes":
+                    continue
+                if isinstance(part, ToolCallPart):
+                    calls[part.tool_call_id] = part.args_as_dict().get("event_id")
+                elif isinstance(part.content, dict) and part.content.get("ok") and calls.get(part.tool_call_id):
+                    for show in part.content["data"]["items"]:
+                        if show["showtime_id"] != str(showtime_id) or not isinstance(show.get("starts_at"), str):
+                            continue
+                        event_id = UUID(str(calls[part.tool_call_id]))
+                        event = await _buyer_read(
+                            ctx.deps.backend, "getEvent", path={"event_id": event_id}, requested={"event_id": event_id}
+                        )
+                        return {"event": event["title"], "showtime": show["starts_at"]}
+    except (AttributeError, KeyError, TypeError, ValueError, ToolError):
+        return {}
+    return {}
+
+
+def payment_display(order_code, event, total_amount, expires_at):
+    return {
+        "order_code": order_code,
+        "event": event,
+        "total_amount": total_amount,
+        "currency": "VND",
+        "expires_at": expires_at,
+    }
+
+
+async def create_buyer_card(*, conversation_id, actor_id, turn_id, operation, payload, display, expires_at):
+    form = "BUYER" if operation == Operation.CREATE_PAYMENT else None
+    action_id, version = await pending.create(
+        conversation_id=conversation_id,
+        actor_id=actor_id,
+        role=Role.BUYER,
+        turn_id=turn_id,
+        operation=operation,
+        payload=payload,
+        display=display | ({"form": form} if form else {}),
+        expires_at=expires_at,
+    )
+    return ConfirmAction(
+        action_id=action_id, version=version, operation=operation, display=display, form=form, expires_at=expires_at
+    )
+
+
+def _buyer_proposal(operation):
+    def decorate(tool):
+        @wraps(tool)
+        async def propose(ctx: RunContext[TurnDeps], *args, **kwargs):
+            deps = ctx.deps
+            op = pending.BACKEND_OPERATION[operation]
+            try:
+                if deps.principal.role != Role.BUYER:
+                    raise ToolError("FORBIDDEN")
+                payload, display, expires_at = await tool(ctx, *args, **kwargs)
+                card = await create_buyer_card(
+                    conversation_id=deps.conversation_id,
+                    actor_id=deps.principal.user_id,
+                    turn_id=deps.turn_id,
+                    operation=operation,
+                    payload=payload,
+                    display=display,
+                    expires_at=expires_at,
+                )
+            except ToolError as error:
+                return fail(op, error)
+            deps.blocks.append(card)
+            return ok(
+                op,
+                {"status": "PROPOSED", "action_id": str(card.action_id), "expires_at": expires_at.isoformat()},
+                observed_at=datetime.now(UTC),
+            )
+
+        return propose
+
+    return decorate
+
+
+@_buyer_proposal(Operation.HOLD_SEATS)
 async def propose_hold_seats(
     ctx: RunContext[TurnDeps],
     showtime_id: UUID,
-    seat_ids: SeatIds | None = None,
-    zone_id: UUID | None = None,
-    quantity: Annotated[int, Field(ge=1, le=20)] | None = None,
+    zone_id: UUID,
+    quantity: Annotated[int, Field(strict=True, ge=1)],
+    seat_ids: list[UUID] | None = None,
 ) -> dict:
-    """Đề xuất giữ vé. Khu ngồi: chỉ seat_ids. Khu đứng: zone_id + quantity. Hạn 5 phút. → holdSeats"""
-    raise NotImplementedError
+    """Đề xuất giữ vé theo suất, khu và số lượng. Khu ngồi cần đủ ID ghế đã chọn, khu đứng bỏ seat_ids. → holdSeats"""
+    deps = ctx.deps
+    if type(quantity) is not int or quantity < 1 or (seat_ids and len(set(seat_ids)) != len(seat_ids)):
+        raise ToolError("INVALID_ARGUMENT")
+    await require_ref(deps, "SHOWTIME", showtime_id)
+    await require_ref(deps, "ZONE", zone_id)
+    for seat_id in seat_ids or ():
+        await require_ref(deps, "SEAT", seat_id)
+    path = {"showtime_id": str(showtime_id)}
+    scope = {"showtime_id": showtime_id, "zone_id": zone_id}
+    available = await _buyer_read(deps.backend, "getAvailability", path=path, requested=scope)
+    if available["status"] != "ON_SALE":
+        raise ToolError("SHOWTIME_NOT_ON_SALE")
+    if len(available["zones"]) != 1 or available["zones"][0]["price"] is None:
+        raise ToolError("INVALID_REFERENCE")
+    zone = available["zones"][0]
+    display = {
+        "zone": zone["name"],
+        "quantity": quantity,
+        "unit_price": zone["price"],
+        "total": zone["price"] * quantity,
+        "currency": "VND",
+    }
+    if zone["seating"] == "SEATED":
+        if not seat_ids or len(seat_ids) != quantity:
+            raise ToolError("INVALID_ARGUMENT")
+        seatmap = await _buyer_read(
+            deps.backend,
+            "getSeatmap",
+            path=path,
+            query={"zone_id": str(zone_id)},
+            requested=scope | {"seat_ids": set(seat_ids)},
+        )
+        labels = {s["seat_id"]: f"{s['row']}-{s['number']}" for s in seatmap["seats"]}
+        ids = [str(s) for s in seat_ids]
+        if not all(s in labels for s in ids):
+            raise ToolError("INVALID_REFERENCE")
+        body = {"seat_ids": ids}
+        display["seats"] = [labels[s] for s in ids]
+    else:
+        if seat_ids is not None:
+            raise ToolError("INVALID_ARGUMENT")
+        if quantity > zone["seats_left"]:
+            raise ToolError("NOT_ENOUGH_STOCK")
+        body = {"zone_id": str(zone_id), "quantity": quantity}
+    async for order in _items(deps.backend, "listMyOrders", requested={"showtime_id": showtime_id}, status="PENDING"):
+        expires_at = order.get("expires_at")
+        if order["status"] == "PENDING" and expires_at and datetime.fromisoformat(expires_at) > datetime.now(UTC):
+            raise ToolError("ORDER_STATE_INVALID")
+    display.update(await _showtime_labels(ctx, showtime_id))
+    return {"path": path, "body": body}, display, datetime.now(UTC) + pending.HOLD_TTL
 
 
+async def _pending_order(deps, order_id):
+    await require_ref(deps, "ORDER", order_id)
+    path = {"order_id": str(order_id)}
+    order = await _buyer_read(deps.backend, "getOrder", path=path, requested={"order_id": order_id})
+    if order["status"] != "PENDING":
+        raise ToolError("ORDER_STATE_INVALID")
+    if not order.get("expires_at"):
+        raise ToolError("INVALID_TOOL_RESULT")
+    return path, order, datetime.fromisoformat(order["expires_at"])
+
+
+@_buyer_proposal(Operation.CREATE_PAYMENT)
 async def propose_create_payment(ctx: RunContext[TurnDeps], order_id: UUID) -> dict:
     """Đề xuất thanh toán đơn PENDING; thẻ có form người mua. Hạn = thời gian giữ ghế còn lại. → createPayment"""
-    raise NotImplementedError
+    path, order, expires_at = await _pending_order(ctx.deps, order_id)
+    if expires_at <= datetime.now(UTC):
+        raise ToolError("HOLD_EXPIRED")
+    display = payment_display(order["code"], order["event_title"], order["total_amount"], order["expires_at"])
+    return {"path": path, "body": {}}, display, expires_at
 
 
+@_buyer_proposal(Operation.CANCEL_ORDER)
 async def propose_cancel_order(ctx: RunContext[TurnDeps], order_id: UUID) -> dict:
     """Đề xuất hủy đơn PENDING và nhả ghế. → cancelOrder"""
-    raise NotImplementedError
+    path, order, expires_at = await _pending_order(ctx.deps, order_id)
+    now = datetime.now(UTC)
+    if expires_at <= now:
+        expires_at = now + timedelta(minutes=1)
+    return (
+        {"path": path},
+        {"order_code": order["code"], "event": order["event_title"], "total_amount": order["total_amount"]},
+        expires_at,
+    )
 
 
+@_buyer_proposal(Operation.RESEND_MY_TICKET)
 async def propose_resend_my_ticket(ctx: RunContext[TurnDeps], ticket_id: UUID) -> dict:
     """Đề xuất gửi lại vé ISSUED tới email trên đơn. → resendMyTicket"""
-    raise NotImplementedError
+    await require_ref(ctx.deps, "TICKET", ticket_id)
+    for when in ("upcoming", "past"):
+        async for ticket in _items(ctx.deps.backend, "listMyTickets", requested={"ticket_id": ticket_id}, when=when):
+            if ticket["status"] != "ISSUED":
+                raise ToolError("TICKET_USED" if ticket["status"] == "USED" else "TICKET_NOT_VALID")
+            display = {"ticket_code": ticket["code"], "event": ticket["event_title"], "zone": ticket["zone"]}
+            display.update({key: ticket[key] for key in ("row", "number") if ticket.get(key) is not None})
+            return {"path": {"ticket_id": str(ticket_id)}}, display, datetime.now(UTC) + pending.DEFAULT_TTL
+    raise ToolError("INVALID_REFERENCE")
 
 
 # ---- Admin
@@ -61,8 +251,6 @@ def _admin_proposal(operation: Operation):
             try:
                 if deps.principal.role != Role.ADMIN:
                     raise ToolError("FORBIDDEN")
-                if deps.proposals_created:
-                    raise ToolError("LIMIT_EXCEEDED")
                 path, body, display = await tool(ctx, *args, **kwargs)
                 now = datetime.now(UTC)
                 expires_at = now + pending.DEFAULT_TTL
@@ -78,7 +266,6 @@ def _admin_proposal(operation: Operation):
                 )
             except ToolError as error:
                 return fail(backend_operation, error)
-            deps.proposals_created += 1
             deps.blocks.append(
                 ConfirmAction(
                     action_id=action_id, version=version, operation=operation, expires_at=expires_at, display=display

@@ -227,6 +227,7 @@ async def test_T02_selfDeclaredAdmin_keepsBuyerToolsAndIdentity_withoutHTTP(data
     from pydantic_ai.messages import ToolReturnPart
 
     from vingo_agent.agents.registry import tools_for
+    from vingo_agent.config import get_settings
     from vingo_agent.schemas.chat import Role
 
     engine = create_async_engine(database_url)
@@ -239,12 +240,14 @@ async def test_T02_selfDeclaredAdmin_keepsBuyerToolsAndIdentity_withoutHTTP(data
     monkeypatch.setattr(repo, "transaction", transaction)
     called = 0
     retry_seen = False
+    # Turn chỉ đăng ký tool đang bật (AGENT_DISABLED_TOOLS, mặc định tắt suggest_seats).
+    buyer_tools = set(tools_for(Role.BUYER, get_settings().agent_disabled_tools))
 
     async def respond(messages, info):
         nonlocal called, retry_seen
         called += 1
         names = {tool.name for tool in info.function_tools}
-        assert names == set(tools_for(Role.BUYER))
+        assert names == buyer_tools
         assert not (names & (set(tools_for(Role.ADMIN)) - set(tools_for(Role.BUYER))))
         assert "query_metric" not in names
         if called == 1:

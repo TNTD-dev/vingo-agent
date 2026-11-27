@@ -1,0 +1,571 @@
+tools:
+- role: BUYER
+  tool: search_events
+  valid:
+  - B01
+  - B02
+  - B03
+  - B04
+  - B05
+  - B06
+  - B07
+  - B08
+  - B09
+  - B17
+  - B18
+  - B20
+  - B21
+  - X01-details
+  - X01-duplicate
+  - X01-no-showtimes
+  - X01-no-results
+  - X01-pagination
+  - X02-zero
+  - X02-exact
+  - X02-short-one
+  - X02-total-budget
+  - X02-per-ticket-budget
+  - X02-seat-blocked
+  - X02-seat-sold
+  - X02-max-tickets
+  - X08-no-diacritics
+  - X08-abbreviation
+  - X08-typo
+  - X08-change-mind
+  - X08-switch-event
+  - X08-history-injection
+  - X08-summary-injection
+  - X08-context-79
+  - X08-context-80
+  - F06
+  - S04
+  - S06
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: get_event
+  valid:
+  - B03
+  - B04
+  - B05
+  - B06
+  - B07
+  - B08
+  - B09
+  - B17
+  - B18
+  - B20
+  - B21
+  - X01-details
+  - X02-zero
+  - X02-exact
+  - X02-short-one
+  - X02-total-budget
+  - X02-per-ticket-budget
+  - X02-seat-blocked
+  - X02-seat-sold
+  - X02-max-tickets
+  - X08-change-mind
+  - X08-switch-event
+  - F06
+  - S04
+  - S06
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: list_event_showtimes
+  valid:
+  - B03
+  - B04
+  - B05
+  - B06
+  - B07
+  - B08
+  - B09
+  - B17
+  - B18
+  - B20
+  - B21
+  - X01-details
+  - X02-zero
+  - X02-exact
+  - X02-short-one
+  - X02-total-budget
+  - X02-per-ticket-budget
+  - X02-seat-blocked
+  - X02-seat-sold
+  - X02-max-tickets
+  - X08-change-mind
+  - X08-switch-event
+  - F06
+  - S06
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: get_availability
+  valid:
+  - B03
+  - B08
+  - B20
+  - X02-zero
+  - X02-short-one
+  - X02-total-budget
+  - X02-per-ticket-budget
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: get_seatmap
+  valid:
+  - B08
+  - X02-seat-blocked
+  - X02-seat-sold
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: suggest_seats
+  valid:
+  - B20
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: get_me
+  valid:
+  - X03-profile
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: list_my_orders
+  valid:
+  - B10
+  - B11
+  - B12
+  - B13
+  - B19
+  - B21
+  - X03-orders-empty
+  - X03-orders-many
+  - X03-order-detail
+  - X03-payment
+  - X03-order-expired
+  - X03-order-cancelled
+  - X03-order-paid
+  - S10
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: get_order
+  valid:
+  - B10
+  - B11
+  - B12
+  - B13
+  - B19
+  - X03-order-detail
+  - X03-payment
+  - X03-order-expired
+  - X03-order-cancelled
+  - X03-order-paid
+  - S10
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: get_payment
+  valid:
+  - B12
+  - X03-payment
+  - S10
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: list_my_tickets
+  valid:
+  - B14
+  - B15
+  - X03-no-issued-tickets
+  - X03-tickets
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: propose_hold_seats
+  valid:
+  - B04
+  - B05
+  - B06
+  - B07
+  - B08
+  - B17
+  - B18
+  - X02-exact
+  - X08-change-mind
+  - F06
+  - S06
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: propose_create_payment
+  valid:
+  - B10
+  - B11
+  - B19
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: propose_cancel_order
+  valid:
+  - B13
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: propose_resend_my_ticket
+  valid:
+  - B14
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: confirm_pending_action
+  valid:
+  - B05
+  - B19
+  - tests/integration/test_actions.py::test_textConfirm_usesSharedExecutionAndBlocks
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: BUYER
+  tool: reject_pending_action
+  valid:
+  - B18
+  - tests/integration/test_actions.py::test_textReject_andTextFormPhraseCannotWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_admin_dashboard
+  valid:
+  - X06-get_admin_dashboard
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: query_metric
+  valid:
+  - A01
+  - A02
+  - X06-query_metric
+  - X06-zero-metric
+  - X06-vn-month-boundary
+  - X06-range-over-366
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: list_venues
+  valid:
+  - X06-list_venues
+  - X06-get_admin_venue
+  - X06-list_seat_layouts
+  - X06-get_seat_layout
+  - X06-get_seat_layout_zone
+  - X06-get_admin_layout_tree
+  - X06-wrong-parent
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_admin_venue
+  valid:
+  - X06-get_admin_venue
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: list_seat_layouts
+  valid:
+  - X06-list_seat_layouts
+  - X06-get_seat_layout
+  - X06-get_seat_layout_zone
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_seat_layout
+  valid:
+  - A05
+  - A07
+  - A08
+  - A13
+  - X06-get_seat_layout
+  - X06-get_seatmap
+  - X06-get_seat_layout_zone
+  - X06-get_zone_prices_preview
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: list_admin_events
+  valid:
+  - A05
+  - A06
+  - A07
+  - A08
+  - A12
+  - A14
+  - X06-list_admin_events
+  - X06-get_admin_event
+  - X06-get_seatmap
+  - X06-get_zone_prices_preview
+  - X06-list_showtime_checkins
+  - X06-duplicate-event
+  - X06-pagination
+  - F10
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_admin_event
+  valid:
+  - A05
+  - A06
+  - A07
+  - A08
+  - A12
+  - A13
+  - A14
+  - X06-get_admin_event
+  - X06-get_seatmap
+  - X06-get_zone_prices_preview
+  - X06-list_showtime_checkins
+  - F10
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: admin_list_tickets
+  valid:
+  - A09
+  - X06-admin_list_tickets
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_seatmap
+  valid:
+  - A07
+  - A08
+  - X06-get_seatmap
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_seat_layout_zone
+  valid:
+  - X06-get_seat_layout_zone
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_admin_layout_tree
+  valid:
+  - X06-get_admin_layout_tree
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: get_zone_prices_preview
+  valid:
+  - A13
+  - X06-get_zone_prices_preview
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: admin_list_orders
+  valid:
+  - A15
+  - X06-admin_list_orders
+  - X06-admin_get_order
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: admin_get_order
+  valid:
+  - X06-admin_get_order
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: list_showtime_checkins
+  valid:
+  - X06-list_showtime_checkins
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: list_audit_logs
+  valid:
+  - X06-list_audit_logs
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: list_metrics
+  valid:
+  - X06-list_metrics
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_create_event
+  valid:
+  - A04
+  - A11
+  - tests/unit/test_eval_proposals.py::test_readyAdminProposal_createsPending_withoutBusinessWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_create_showtime
+  valid:
+  - A05
+  - A11
+  - tests/unit/test_eval_proposals.py::test_readyAdminProposal_createsPending_withoutBusinessWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_publish_event
+  valid:
+  - A06
+  - A11
+  - F10
+  - tests/unit/test_eval_proposals.py::test_readyAdminProposal_createsPending_withoutBusinessWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_block_seats
+  valid:
+  - A07
+  - tests/unit/test_eval_proposals.py::test_readyAdminProposal_createsPending_withoutBusinessWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_unblock_seats
+  valid:
+  - A08
+  - tests/unit/test_eval_proposals.py::test_readyAdminProposal_createsPending_withoutBusinessWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_admin_resend_ticket
+  valid:
+  - A09
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_create_venue
+  valid:
+  - tests/unit/test_eval_proposals.py::test_readyAdminProposal_createsPending_withoutBusinessWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_update_venue
+  valid: []
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_seat_layout
+  valid: []
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_update_event
+  valid:
+  - A12
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_update_price_tiers
+  valid: []
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_add_tier_price
+  valid: []
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_update_zone_prices
+  valid:
+  - A13
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_update_showtime
+  valid: []
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_cancel_showtime
+  valid: []
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_cancel_event
+  valid:
+  - A14
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: propose_update_event_visibility
+  valid: []
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: confirm_pending_action
+  valid:
+  - A14
+  - tests/integration/test_actions.py::test_textConfirm_usesSharedExecutionAndBlocks
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+- role: ADMIN
+  tool: reject_pending_action
+  valid:
+  - tests/integration/test_actions.py::test_textReject_andTextFormPhraseCannotWrite
+  error:
+  - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+guardrails:
+  G1:
+    allow:
+    - tests/unit/test_api.py::test_createConversation_returns201_withAuthenticatedOwner
+    deny:
+    - tests/unit/test_api.py::test_createConversation_returns401_withoutServiceKey
+    - tests/unit/test_turn_loop.py::test_T02_turn_rejectsWrongOwnerBeforeCreatingTurn
+  G2:
+    allow:
+    - tests/unit/test_turn_loop.py::test_T01_turn_streamsInOrderAndSavesRedactedText
+    deny:
+    - tests/unit/test_turn_loop.py::test_input_rejectsInvalidText
+  G3:
+    allow:
+    - tests/unit/test_guardrails.py::test_T01_redactionPreservesLookupAndOrderNumbers
+    deny:
+    - tests/unit/test_turn_loop.py::test_T01_turn_streamsInOrderAndSavesRedactedText
+  G4:
+    allow:
+    - tests/unit/test_guardrails.py::test_T14_validArgs_preserveUUIDAndInteger
+    deny:
+    - tests/unit/test_tool_contracts.py::test_registeredTool_rejectsInvalidSchema_beforeHttp
+  G5:
+    allow:
+    - tests/unit/test_registry.py::test_buyer_has17Tools_withoutAdminTools
+    deny:
+    - tests/unit/test_buyer_read.py::test_buyerRead_rejectsUntrustedRef_beforeAnyHttp
+  G6:
+    allow:
+    - tests/unit/test_backend.py::test_read_retriesTwice_withAuth
+    deny:
+    - tests/unit/test_backend.py::test_write_timeoutIsNotRetried_andUnsafeTargetsAreBlocked
+  G7:
+    allow:
+    - tests/unit/test_buyer_read.py::test_getPayment_returnsOpenWithoutPaymentUrl
+    deny:
+    - tests/integration/test_guardrails.py::test_T06_resultValidation_precedesRefsBlocksAndPriceEvidence
+  G8:
+    allow:
+    - tests/integration/test_actions.py::test_textConfirm_usesSharedExecutionAndBlocks
+    deny:
+    - tests/integration/test_actions.py::test_T08_confirmBlocksInvalidAction_withoutWrite
+  G9:
+    allow:
+    - tests/unit/test_eval.py::test_response_acceptsVerifiedFacts
+    deny:
+    - tests/unit/test_turn_loop.py::test_T07_replyNotices_followStreamAndPersist
+  G10:
+    allow:
+    - tests/unit/test_context.py::test_T12_compact_skipsBelowThreshold
+    deny:
+    - tests/unit/test_turn_loop.py::test_T12_turn_enforcesUsageLimits
+    - tests/integration/test_guardrails.py::test_T13_secondLease_isDeniedWithoutOverwritingFirst
+  G11:
+    allow:
+    - tests/unit/test_guardrails.py::test_G11_deniedLog_onlyForGuardrailCodes_notBackendBusinessErrors
+    deny:
+    - tests/unit/test_guardrails.py::test_G11_denialLogsContainOnlyCode

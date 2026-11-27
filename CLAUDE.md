@@ -35,7 +35,7 @@ Mỗi điều dưới đây có test trong `evals/cases/safety.yaml`. Giữ đú
 - **ID phải có nguồn.** Mọi ID trong tham số tool qua `require_ref`. Tham số tool chỉ chứa ID và lựa chọn của user; `user_id`, `role`, token, URL, giá do code thêm.
 - **Kết quả đã lọc.** Dữ liệu backend tới model chỉ qua `tools/projections.py`. `qr_token`, `payment_url`, email, SĐT chỉ đi tới web qua block.
 - **Block do code dựng** trong `tools/blocks.py`; model chỉ viết text.
-- **Log theo allowlist.** Ghi log bằng `log_event`; nội dung tin nhắn, tham số tool, body, token, form người mua nằm ngoài log và trace.
+- **Log theo allowlist.** Ghi log bằng `log_event`; nội dung tin nhắn, tham số tool, body, token, form người mua nằm ngoài log và trace. Ngoại lệ duy nhất: cờ dev `OTEL_INCLUDE_CONTENT`, chỉ có hiệu lực khi trace gửi về localhost.
 - **Không giữ bí mật.** Session token chỉ sống trong request; form người mua đi thẳng lên backend.
 - **Transaction ngắn.** Mở và đóng transaction DB trước mỗi lời gọi backend/LLM. Chuyển trạng thái bằng CAS: `UPDATE ... WHERE state = :expected AND version = :v`.
 

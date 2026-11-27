@@ -18,10 +18,11 @@ ResourceType = Literal["EVENT", "SHOWTIME", "ZONE", "SEAT", "ORDER", "TICKET", "
 class ToolError(Exception):
     """Lỗi trả về cho model dưới dạng envelope `ok=false`, không phải exception lộ ra ngoài."""
 
-    def __init__(self, code: str, retryable: bool = False) -> None:
+    def __init__(self, code: str, retryable: bool = False, *, http_status: int | None = None) -> None:
         super().__init__(code)
         self.code = code
         self.retryable = retryable
+        self.http_status = http_status
 
 
 @dataclass
@@ -36,6 +37,7 @@ class TurnDeps:
     tool_calls: int = 0
     proposals_created: int = 0
     blocks: list[BaseModel] = field(default_factory=list)
+    notices: list[dict[str, str]] = field(default_factory=list)
     admin_ticket_codes: dict[UUID, str] = field(default_factory=dict)
 
 

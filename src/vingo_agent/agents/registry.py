@@ -1,4 +1,4 @@
-"""Đăng ký tool theo role (V2.3 mục 4): Buyer 17, Admin 18, bỏ tool trong AGENT_DISABLED_TOOLS."""
+"""Trước khi lọc AGENT_DISABLED_TOOLS, Buyer có 17 tool (11 đọc), Admin có 19. Hai role có 33 tên riêng biệt."""
 
 from collections.abc import Callable
 

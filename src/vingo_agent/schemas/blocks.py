@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class EventItem(BaseModel):
@@ -60,7 +60,7 @@ class SeatItem(BaseModel):
     row: str | None = None
     number: str | None = None
     price: int | None = None
-    status: str | None = None  # chỉ Admin thấy
+    status: str | None = Field(default=None, exclude_if=lambda value: value is None)  # chỉ Admin thấy
 
 
 class SeatMap(BaseModel):
@@ -76,6 +76,7 @@ class OrderLine(BaseModel):
     row: str | None = None
     number: str | None = None
     price: int
+    quantity: int = 1
 
 
 class OrderSummary(BaseModel):
@@ -164,6 +165,7 @@ class ConfirmAction(BaseModel):
     expires_at: datetime
     display: dict[str, object]
     form: ConfirmForm | None = None
+    confirm_phrase: str | None = None
 
 
 class ExecutionStatus(StrEnum):

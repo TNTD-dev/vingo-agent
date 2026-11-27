@@ -15,7 +15,7 @@ from pydantic_ai.models.function import FunctionModel
 
 from vingo_agent.actions import proposals as pending
 from vingo_agent.actions.execution import execute_admin_resend
-from vingo_agent.actions.lookup import SAFE_RETRY
+from vingo_agent.actions.registry import LookupMode, get_spec
 from vingo_agent.agents.registry import tools_for
 from vingo_agent.api.auth import Principal
 from vingo_agent.clients.backend import BackendClient
@@ -381,7 +381,8 @@ async def test_F03_resendHandler_sendsExactlyOnce_andNeverRetriesUnknown(outcome
     result = await execute_admin_resend(backend=backend, payload={"path": {"ticket_id": TID}, "body": None})
     assert result == expected
     backend.write.assert_awaited_once_with("adminResendTicket", path={"ticket_id": TID}, body=None)
-    assert pending.Operation.ADMIN_RESEND_TICKET not in SAFE_RETRY
+    assert get_spec(pending.Operation.ADMIN_RESEND_TICKET).lookup_mode == LookupMode.NONE
+    assert not get_spec(pending.Operation.ADMIN_RESEND_TICKET).safe_retry
 
 
 async def test_resendHandler_rejectsInjectedPayload_withoutCallingBackend():
