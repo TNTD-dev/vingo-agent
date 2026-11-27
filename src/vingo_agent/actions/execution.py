@@ -1,6 +1,7 @@
 """Gọi ghi sau CAS; không giữ transaction qua HTTP, không gọi model."""
 
 import logging
+import time
 from hashlib import sha256
 from inspect import signature
 from uuid import UUID, uuid4
@@ -11,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from vingo_agent.actions.registry import LookupMode, get_spec
 from vingo_agent.observability.logging import log_event
+from vingo_agent.observability.tracing import span
 from vingo_agent.persistence.db import transaction
 from vingo_agent.persistence.models import conversation, execution, message, pending_action, resource_ref, turn
 from vingo_agent.schemas.errors import BackendErrorCode
@@ -79,30 +81,33 @@ async def execute(operation, *, backend, payload, idempotency_key, buyer=None, l
         result = outcome(await send())
         if result is not None:
             return result
-    if spec.lookup_mode == LookupMode.RETRY:
-        if lookup_only and spec.check_before is not None:
-            try:
-                if not await spec.check_before(backend=backend, payload=payload):
+    with span("lookup", operation=operation, outcome="UNKNOWN") as trace:
+        if spec.lookup_mode == LookupMode.RETRY:
+            if lookup_only and spec.check_before is not None:
+                try:
+                    if not await spec.check_before(backend=backend, payload=payload):
+                        return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+                except (httpx.RequestError, ToolError):
                     return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+            # Không có buyer khi mở lại hội thoại: tuyệt đối không tái dựng form từ DB.
+            if spec.build_lookup_request is not None or not spec.needs_form or buyer is not None:
+                result = outcome(await send(lookup_request=spec.build_lookup_request is not None))
+                if result is not None:
+                    trace.set_attribute("outcome", result[0])
+                    return result
+        elif spec.lookup_mode == LookupMode.READ:
+            try:
+                result = await spec.lookup(backend=backend, payload=payload, idempotency_key=idempotency_key)
             except (httpx.RequestError, ToolError):
-                return "UNKNOWN", "EXECUTION_UNKNOWN", {}
-        # Không có buyer khi mở lại hội thoại: tuyệt đối không tái dựng form từ DB.
-        if spec.build_lookup_request is not None or not spec.needs_form or buyer is not None:
-            result = outcome(await send(lookup_request=spec.build_lookup_request is not None))
+                result = None
             if result is not None:
-                return result
-    elif spec.lookup_mode == LookupMode.READ:
-        try:
-            result = await spec.lookup(backend=backend, payload=payload, idempotency_key=idempotency_key)
-        except (httpx.RequestError, ToolError):
-            result = None
-        if result is not None:
-            if isinstance(result, tuple):
-                result, blocks = result
-                if web_blocks is not None:
-                    web_blocks.extend(blocks)
-            return "SUCCEEDED", None, result
-    return "UNKNOWN", "EXECUTION_UNKNOWN", {}
+                if isinstance(result, tuple):
+                    result, blocks = result
+                    if web_blocks is not None:
+                        web_blocks.extend(blocks)
+                trace.set_attribute("outcome", "SUCCEEDED")
+                return "SUCCEEDED", None, result
+        return "UNKNOWN", "EXECUTION_UNKNOWN", {}
 
 
 async def execute_admin_catalog(operation, *, backend, payload, idempotency_key):
@@ -232,6 +237,7 @@ async def run(action_id, *, backend, buyer=None):
         raise ToolError("ACTION_NOT_PENDING")
     if row["execution_state"] != "RUNNING":
         return row["execution_state"], row["error_code"], row["result"] or {}
+    started = time.monotonic()
     web_blocks = []
     outcome = await execute(
         row["operation"],
@@ -241,7 +247,16 @@ async def run(action_id, *, backend, buyer=None):
         buyer=buyer,
         web_blocks=web_blocks,
     )
-    return await save(action_id, row, outcome, expected="RUNNING", backend=backend, web_blocks=web_blocks)
+    outcome = await save(action_id, row, outcome, expected="RUNNING", backend=backend, web_blocks=web_blocks)
+    log_event(
+        logging.getLogger(__name__),
+        "action.executed",
+        action_id=str(action_id),
+        operation=row["operation"],
+        outcome=outcome[0],
+        duration_ms=(time.monotonic() - started) * 1000,
+    )
+    return outcome
 
 
 async def load_web_turn(action_id, conversation_id):

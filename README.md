@@ -116,3 +116,8 @@ Cây thư mục và trách nhiệm từng file: thiết kế mục 10.
 ## Đóng góp
 
 Quy tắc code, bất biến an toàn và checklist thêm tool: [CLAUDE.md](CLAUDE.md). Commit message viết tiếng Việt.
+
+Chạy Phoenix local: `docker compose -f compose.dev.yaml up -d`.
+Đặt `OTEL_EXPORTER_ENDPOINT=http://localhost:6006` trong `.env` rồi khởi động agent.
+Mở http://localhost:6006 để xem trace.
+Muốn xem cả tin nhắn và tham số tool khi debug prompt: đặt thêm `OTEL_INCLUDE_CONTENT=true` (chỉ có hiệu lực với endpoint localhost).

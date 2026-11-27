@@ -36,6 +36,7 @@ from vingo_agent.guardrails.input import InputRejected, check_input, redact
 from vingo_agent.guardrails.limits import usage_limits
 from vingo_agent.guardrails.output import Evidence, check_reply
 from vingo_agent.observability.logging import denied, log_event
+from vingo_agent.observability.tracing import span
 from vingo_agent.persistence import repositories as repo
 from vingo_agent.tools.base import ToolError, TurnDeps
 from vingo_agent.tools.blocks import build_block
@@ -146,278 +147,329 @@ async def run_turn(*, conversation_id, request, principal):
     del request
 
     async def stream():
-        seq, final_text, state, code = 0, "", "FAILED", "BACKEND_UNAVAILABLE"
-        blocks, messages, amounts = {}, [{"kind": "USER", "content": {"text": text}}], set()
-        notices = []
-        succeeded = set()
-        model_version = None
-        last_input_tokens = last_input_chars = None
-
-        def event(kind, payload):
-            nonlocal seq
-            seq += 1
-            return StreamEvent(turn_id=turn_id, seq=seq, type=kind, payload=payload)
-
-        async def persist():
-            await repo.append_messages(conversation_id, turn_id, messages)
-            if model_version:
-                await repo.set_model_version(turn_id, model_version)
-            if last_input_tokens is not None:
-                await repo.set_input_usage(turn_id, last_input_tokens, last_input_chars)
-            await repo.transition_turn(
-                turn_id,
-                "RUNNING",
-                state,
-                final_text_and_blocks={
-                    "text": final_text,
-                    "blocks": list(blocks.values()),
-                    "notices": notices,
-                    **({"code": code} if state == "FAILED" else {}),
-                },
-            )
-
-        try:
-            yield event("turn.started", {"turn_id": str(turn_id)})
-            timeout = asyncio.timeout_at(deadline)
-            async with timeout:
-                model = build_model(settings.agent_model, settings.agent_fallback_model)
-                agent = build_agent(principal.role, model=model, disabled_tools=settings.agent_disabled_tools)
-                usage = RunUsage()
-                limits = usage_limits(settings)
-                pending = await repo.get_pending_action(conversation_id)
-                prompt = load_prompt(principal.role)
-                now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).isoformat()
-
-                async def context():
-                    return await build_context(conversation_id, now_vn=now, pending_action=pending, new_message=text)
-
-                tool_schema_size = text_chars(
-                    json.dumps(
-                        [
-                            {
-                                "name": name,
-                                "description": tool.description,
-                                "parameters": tool.function_schema.json_schema,
-                            }
-                            for name, tool in agent._function_toolset.tools.items()
-                        ],
-                        ensure_ascii=False,
-                    )
-                )
-
-                estimator = TokenEstimator(settings.default_chars_per_token)
-                previous_usage = await repo.get_last_input_usage(conversation_id)
-                if previous_usage:
-                    estimator.observe(
-                        previous_usage["last_input_tokens"], previous_usage["last_input_chars"], tool_schema_size
-                    )
-                    estimator.reset_anchor()
-
-                async def estimate():
-                    return estimator.estimate(text_chars(await context()) + len(prompt), tool_schema_size)
-
-                async def estimate_after_compact():
-                    estimator.reset_anchor()
-                    return await estimate()
-
-                async def summarize(instructions, summary, rows):
-                    summarizer = Agent(model, instructions=instructions)
-                    result = await summarizer.run(
-                        json.dumps(
-                            {"summary": summary, "messages": [dict(row) for row in rows]},
-                            default=str,
-                            ensure_ascii=False,
-                        ),
-                        usage=usage,
-                        usage_limits=limits,
-                    )
-                    return redact(result.output)
-
-                await compact_if_needed(
-                    conversation_id, await estimate(), summarize=summarize, estimate=estimate_after_compact
-                )
-                history = await context()
-                _, context_rows = await repo.load_context(conversation_id)
-                for row in context_rows:
-                    if row["kind"] == "TOOL_RESULT":
-                        if row["content"].get("result", {}).get("ok") is True:
-                            amounts.update(amounts_in(row["content"]))
-                if selection:
-                    kind = "SEAT" if selection.type.value == "SEATS" else selection.type.value
-                    valid = [str(value) for value in selection.ids if await repo.has_ref(conversation_id, kind, value)]
-                    if len(valid) != len(selection.ids):
-                        yield event("notice", {"level": "WARN", "text": "Lựa chọn không hợp lệ đã được bỏ qua."})
-                    if valid:
-                        from pydantic_ai.messages import UserPromptPart
-
-                        history.append(
-                            ModelRequest(parts=[UserPromptPart(json.dumps({"selection": valid, "type": kind}))])
-                        )
-                async with aclosing(BackendClient(settings, principal.session_token)) as backend:
-                    deps = TurnDeps(principal, conversation_id, turn_id, backend, visible_action=visible_action)
-                    history_count = len(history)
-                    async with agent.iter(message_history=history, deps=deps, usage=usage, usage_limits=limits) as run:
-                        async for node in run:
-                            if Agent.is_model_request_node(node):
-                                request_messages = [
-                                    *run.ctx.state.message_history,
-                                    replace(node.request, instructions=prompt),
-                                ]
-                                if estimator.estimate(text_chars(request_messages), tool_schema_size) >= (
-                                    settings.compact_ratio
-                                    * (settings.context_window_tokens - settings.output_reserved_tokens)
-                                ):
-                                    current = run.ctx.state.message_history[history_count:]
-
-                                    async def estimate_current(current=current, node=node):
-                                        # Callback chỉ chạy sau khi summary đã thay history trong DB.
-                                        estimator.reset_anchor()
-                                        return estimator.estimate(
-                                            text_chars(
-                                                [*await context(), *current, replace(node.request, instructions=prompt)]
-                                            ),
-                                            tool_schema_size,
-                                        )
-
-                                    await compact_if_needed(
-                                        conversation_id,
-                                        estimator.estimate(text_chars(request_messages), tool_schema_size),
-                                        summarize=summarize,
-                                        estimate=estimate_current,
-                                    )
-                                    compacted_history = await context()
-                                    history_count = len(compacted_history)
-                                    run.ctx.state.message_history[:] = [*compacted_history, *current]
-                                async with node.stream(run.ctx) as response:
-                                    # node.stream đã thêm request và resolve instructions; history chưa có response.
-                                    request_chars = text_chars(run.ctx.state.message_history)
-                                    async for item in response:
-                                        delta = None
-                                        if isinstance(item, PartStartEvent) and isinstance(item.part, TextPart):
-                                            delta = item.part.content
-                                        elif isinstance(item, PartDeltaEvent) and isinstance(item.delta, TextPartDelta):
-                                            delta = item.delta.content_delta
-                                        if delta:
-                                            model_version = response.response.model_name or model_version
-                                            final_text += delta
-                                            yield event("text.delta", {"text": delta})
-                                input_tokens = response.response.usage.input_tokens
-                                if estimator.observe(input_tokens, request_chars, tool_schema_size):
-                                    last_input_tokens, last_input_chars = input_tokens, request_chars
-                            elif Agent.is_call_tools_node(node):
-                                async with node.stream(run.ctx) as tool_stream:
-                                    async for item in tool_stream:
-                                        if isinstance(item, FunctionToolCallEvent):
-                                            name = item.part.tool_name
-                                            step = (
-                                                "PROPOSING"
-                                                if name.startswith("propose_")
-                                                else "EXECUTING"
-                                                if name in {"confirm_pending_action", "reject_pending_action"}
-                                                else "SEARCHING"
-                                                if name.startswith("search")
-                                                else "READING"
-                                            )
-                                            yield event("progress", {"step": step})
-                                            messages.append(
-                                                {
-                                                    "kind": "TOOL_CALL",
-                                                    "content": filtered(
-                                                        {
-                                                            "tool_name": name,
-                                                            "tool_call_id": item.part.tool_call_id,
-                                                            "args": item.part.args_as_dict(),
-                                                        }
-                                                    ),
-                                                }
-                                            )
-                                        elif isinstance(item, FunctionToolResultEvent):
-                                            result = filtered(item.part.content)
-                                            item.part.content = result
-                                            messages.append(
-                                                {
-                                                    "kind": "TOOL_RESULT",
-                                                    "content": {
-                                                        "tool_name": item.part.tool_name,
-                                                        "tool_call_id": item.part.tool_call_id,
-                                                        "result": result,
-                                                    },
-                                                }
-                                            )
-                                            if isinstance(result, dict) and result.get("ok") is True:
-                                                amounts.update(amounts_in(result))
-                                            if isinstance(result, dict) and result.get("ok"):
-                                                block = build_block(
-                                                    result.get("meta", {}).get("operation"),
-                                                    result["data"],
-                                                    role=principal.role,
-                                                )
-                                                if block:
-                                                    deps.blocks.append(block)
-                                            if not isinstance(result, dict) or result.get("ok") is not True:
-                                                deps.blocks.clear()
-                                            for block in deps.blocks:
-                                                data = block.model_dump(mode="json")
-                                                if (
-                                                    principal.role == "BUYER"
-                                                    and item.part.tool_name == "confirm_pending_action"
-                                                ):
-                                                    amounts.update(amounts_in(data))
-                                                    if (
-                                                        data["type"] == "ActionResult"
-                                                        and data["status"] == "SUCCEEDED"
-                                                        and data["operation"] in {"HOLD_SEATS", "CANCEL_ORDER"}
-                                                    ):
-                                                        succeeded.add(data["operation"])
-                                                payload = {"type": data.pop("type"), "payload": data}
-                                                blocks[payload["type"]] = payload
-                                                yield event("block", payload)
-                                            deps.blocks.clear()
-                                            for notice in deps.notices:
-                                                notices.append(notice)
-                                                yield event("notice", notice)
-                                            deps.notices.clear()
-                        if run.result:
-                            responses = [m for m in run.result.new_messages() if isinstance(m, ModelResponse)]
-                            if responses:
-                                model_version = responses[-1].model_name
-                for warning in check_reply(final_text, Evidence(frozenset(succeeded), frozenset(amounts))):
-                    denied("UNVERIFIED_REPLY")
-                    notice = {"level": "WARN", "text": warning}
-                    notices.append(notice)
-                    yield event("notice", notice)
-                state = "AWAITING_CONFIRMATION" if await repo.get_pending_action(conversation_id) else "COMPLETED"
-        except UsageLimitExceeded:
-            denied("LIMIT_EXCEEDED")
-            code = "LIMIT_EXCEEDED"
-        except TimeoutError:
-            code = "LIMIT_EXCEEDED" if timeout.expired() else "BACKEND_UNAVAILABLE"
-            denied(code)
-        except ToolError as exc:
-            code = exc.code
-        except Exception as exc:
-            code = "BACKEND_UNAVAILABLE"
-            # Không nuốt lỗi lạ: ghi loại lỗi (không ghi nội dung) để còn điều tra.
-            log_event(logger, "turn.error", turn_id=str(turn_id), outcome="FAILED", error_code=type(exc).__name__)
-        finally:
-            final_text = redact(final_text)
-            if final_text:
-                messages.append({"kind": "ASSISTANT", "content": {"text": redact(final_text)}})
-
-            async def finish():
-                try:
-                    await persist()
-                finally:
-                    await repo.release_turn(conversation_id, turn_id)
-
-            task = asyncio.create_task(finish())
+        started = time.monotonic()
+        with span(
+            "chat.turn", turn_id=str(turn_id), role=principal.role, **{"session.id": str(conversation_id)}
+        ) as trace:
+            seq, final_text, state, code = 0, "", "FAILED", "BACKEND_UNAVAILABLE"
             try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                await task
-                raise
-            except Exception:
-                state, code = "FAILED", "BACKEND_UNAVAILABLE"
-        yield event("turn.completed", {"status": state}) if state != "FAILED" else event("turn.failed", {"code": code})
+                blocks, messages, amounts = {}, [{"kind": "USER", "content": {"text": text}}], set()
+                notices = []
+                succeeded = set()
+                model_version = None
+                last_input_tokens = last_input_chars = None
+
+                def event(kind, payload):
+                    nonlocal seq
+                    seq += 1
+                    return StreamEvent(turn_id=turn_id, seq=seq, type=kind, payload=payload)
+
+                async def persist():
+                    await repo.append_messages(conversation_id, turn_id, messages)
+                    if model_version:
+                        await repo.set_model_version(turn_id, model_version)
+                    if last_input_tokens is not None:
+                        await repo.set_input_usage(turn_id, last_input_tokens, last_input_chars)
+                    await repo.transition_turn(
+                        turn_id,
+                        "RUNNING",
+                        state,
+                        final_text_and_blocks={
+                            "text": final_text,
+                            "blocks": list(blocks.values()),
+                            "notices": notices,
+                            **({"code": code} if state == "FAILED" else {}),
+                        },
+                    )
+
+                try:
+                    yield event("turn.started", {"turn_id": str(turn_id)})
+                    timeout = asyncio.timeout_at(deadline)
+                    async with timeout:
+                        model = build_model(settings.agent_model, settings.agent_fallback_model)
+                        agent = build_agent(principal.role, model=model, disabled_tools=settings.agent_disabled_tools)
+                        usage = RunUsage()
+                        limits = usage_limits(settings)
+                        pending = await repo.get_pending_action(conversation_id)
+                        prompt = load_prompt(principal.role)
+                        now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).isoformat()
+
+                        async def context():
+                            with span("context.build"):
+                                return await build_context(
+                                    conversation_id, now_vn=now, pending_action=pending, new_message=text
+                                )
+
+                        tool_schema_size = text_chars(
+                            json.dumps(
+                                [
+                                    {
+                                        "name": name,
+                                        "description": tool.description,
+                                        "parameters": tool.function_schema.json_schema,
+                                    }
+                                    for name, tool in agent._function_toolset.tools.items()
+                                ],
+                                ensure_ascii=False,
+                            )
+                        )
+
+                        estimator = TokenEstimator(settings.default_chars_per_token)
+                        previous_usage = await repo.get_last_input_usage(conversation_id)
+                        if previous_usage:
+                            estimator.observe(
+                                previous_usage["last_input_tokens"],
+                                previous_usage["last_input_chars"],
+                                tool_schema_size,
+                            )
+                            estimator.reset_anchor()
+
+                        async def estimate():
+                            return estimator.estimate(text_chars(await context()) + len(prompt), tool_schema_size)
+
+                        async def estimate_after_compact():
+                            estimator.reset_anchor()
+                            return await estimate()
+
+                        async def summarize(instructions, summary, rows):
+                            summarizer = Agent(model, instructions=instructions)
+                            result = await summarizer.run(
+                                json.dumps(
+                                    {"summary": summary, "messages": [dict(row) for row in rows]},
+                                    default=str,
+                                    ensure_ascii=False,
+                                ),
+                                usage=usage,
+                                usage_limits=limits,
+                                conversation_id=str(conversation_id),
+                            )
+                            return redact(result.output)
+
+                        with span("context.compact"):
+                            await compact_if_needed(
+                                conversation_id, await estimate(), summarize=summarize, estimate=estimate_after_compact
+                            )
+                        history = await context()
+                        _, context_rows = await repo.load_context(conversation_id)
+                        for row in context_rows:
+                            if row["kind"] == "TOOL_RESULT":
+                                if row["content"].get("result", {}).get("ok") is True:
+                                    amounts.update(amounts_in(row["content"]))
+                        if selection:
+                            kind = "SEAT" if selection.type.value == "SEATS" else selection.type.value
+                            valid = [
+                                str(value)
+                                for value in selection.ids
+                                if await repo.has_ref(conversation_id, kind, value)
+                            ]
+                            if len(valid) != len(selection.ids):
+                                yield event(
+                                    "notice", {"level": "WARN", "text": "Lựa chọn không hợp lệ đã được bỏ qua."}
+                                )
+                            if valid:
+                                from pydantic_ai.messages import UserPromptPart
+
+                                history.append(
+                                    ModelRequest(parts=[UserPromptPart(json.dumps({"selection": valid, "type": kind}))])
+                                )
+                        async with aclosing(BackendClient(settings, principal.session_token)) as backend:
+                            deps = TurnDeps(principal, conversation_id, turn_id, backend, visible_action=visible_action)
+                            history_count = len(history)
+                            async with agent.iter(
+                                message_history=history,
+                                deps=deps,
+                                usage=usage,
+                                usage_limits=limits,
+                                conversation_id=str(conversation_id),
+                            ) as run:
+                                async for node in run:
+                                    if Agent.is_model_request_node(node):
+                                        request_messages = [
+                                            *run.ctx.state.message_history,
+                                            replace(node.request, instructions=prompt),
+                                        ]
+                                        if estimator.estimate(text_chars(request_messages), tool_schema_size) >= (
+                                            settings.compact_ratio
+                                            * (settings.context_window_tokens - settings.output_reserved_tokens)
+                                        ):
+                                            current = run.ctx.state.message_history[history_count:]
+
+                                            async def estimate_current(current=current, node=node):
+                                                # Callback chỉ chạy sau khi summary đã thay history trong DB.
+                                                estimator.reset_anchor()
+                                                return estimator.estimate(
+                                                    text_chars(
+                                                        [
+                                                            *await context(),
+                                                            *current,
+                                                            replace(node.request, instructions=prompt),
+                                                        ]
+                                                    ),
+                                                    tool_schema_size,
+                                                )
+
+                                            with span("context.compact"):
+                                                await compact_if_needed(
+                                                    conversation_id,
+                                                    estimator.estimate(text_chars(request_messages), tool_schema_size),
+                                                    summarize=summarize,
+                                                    estimate=estimate_current,
+                                                )
+                                            compacted_history = await context()
+                                            history_count = len(compacted_history)
+                                            run.ctx.state.message_history[:] = [*compacted_history, *current]
+                                        async with node.stream(run.ctx) as response:
+                                            # node.stream đã thêm request; history chưa có response.
+                                            request_chars = text_chars(run.ctx.state.message_history)
+                                            async for item in response:
+                                                delta = None
+                                                if isinstance(item, PartStartEvent) and isinstance(item.part, TextPart):
+                                                    delta = item.part.content
+                                                elif isinstance(item, PartDeltaEvent) and isinstance(
+                                                    item.delta, TextPartDelta
+                                                ):
+                                                    delta = item.delta.content_delta
+                                                if delta:
+                                                    model_version = response.response.model_name or model_version
+                                                    final_text += delta
+                                                    yield event("text.delta", {"text": delta})
+                                        input_tokens = response.response.usage.input_tokens
+                                        if estimator.observe(input_tokens, request_chars, tool_schema_size):
+                                            last_input_tokens, last_input_chars = input_tokens, request_chars
+                                    elif Agent.is_call_tools_node(node):
+                                        async with node.stream(run.ctx) as tool_stream:
+                                            async for item in tool_stream:
+                                                if isinstance(item, FunctionToolCallEvent):
+                                                    name = item.part.tool_name
+                                                    step = (
+                                                        "PROPOSING"
+                                                        if name.startswith("propose_")
+                                                        else "EXECUTING"
+                                                        if name in {"confirm_pending_action", "reject_pending_action"}
+                                                        else "SEARCHING"
+                                                        if name.startswith("search")
+                                                        else "READING"
+                                                    )
+                                                    yield event("progress", {"step": step})
+                                                    messages.append(
+                                                        {
+                                                            "kind": "TOOL_CALL",
+                                                            "content": filtered(
+                                                                {
+                                                                    "tool_name": name,
+                                                                    "tool_call_id": item.part.tool_call_id,
+                                                                    "args": item.part.args_as_dict(),
+                                                                }
+                                                            ),
+                                                        }
+                                                    )
+                                                elif isinstance(item, FunctionToolResultEvent):
+                                                    result = filtered(item.part.content)
+                                                    item.part.content = result
+                                                    messages.append(
+                                                        {
+                                                            "kind": "TOOL_RESULT",
+                                                            "content": {
+                                                                "tool_name": item.part.tool_name,
+                                                                "tool_call_id": item.part.tool_call_id,
+                                                                "result": result,
+                                                            },
+                                                        }
+                                                    )
+                                                    if isinstance(result, dict) and result.get("ok") is True:
+                                                        amounts.update(amounts_in(result))
+                                                    if isinstance(result, dict) and result.get("ok"):
+                                                        block = build_block(
+                                                            result.get("meta", {}).get("operation"),
+                                                            result["data"],
+                                                            role=principal.role,
+                                                        )
+                                                        if block:
+                                                            deps.blocks.append(block)
+                                                    if not isinstance(result, dict) or result.get("ok") is not True:
+                                                        deps.blocks.clear()
+                                                    for block in deps.blocks:
+                                                        data = block.model_dump(mode="json")
+                                                        if (
+                                                            principal.role == "BUYER"
+                                                            and item.part.tool_name == "confirm_pending_action"
+                                                        ):
+                                                            amounts.update(amounts_in(data))
+                                                            if (
+                                                                data["type"] == "ActionResult"
+                                                                and data["status"] == "SUCCEEDED"
+                                                                and data["operation"] in {"HOLD_SEATS", "CANCEL_ORDER"}
+                                                            ):
+                                                                succeeded.add(data["operation"])
+                                                        payload = {"type": data.pop("type"), "payload": data}
+                                                        blocks[payload["type"]] = payload
+                                                        yield event("block", payload)
+                                                    deps.blocks.clear()
+                                                    for notice in deps.notices:
+                                                        notices.append(notice)
+                                                        yield event("notice", notice)
+                                                    deps.notices.clear()
+                                if run.result:
+                                    responses = [m for m in run.result.new_messages() if isinstance(m, ModelResponse)]
+                                    if responses:
+                                        model_version = responses[-1].model_name
+                        with span("response.check"):
+                            warnings = check_reply(final_text, Evidence(frozenset(succeeded), frozenset(amounts)))
+                        for warning in warnings:
+                            denied("UNVERIFIED_REPLY")
+                            notice = {"level": "WARN", "text": warning}
+                            notices.append(notice)
+                            yield event("notice", notice)
+                        state = (
+                            "AWAITING_CONFIRMATION" if await repo.get_pending_action(conversation_id) else "COMPLETED"
+                        )
+                except UsageLimitExceeded:
+                    denied("LIMIT_EXCEEDED")
+                    code = "LIMIT_EXCEEDED"
+                except TimeoutError:
+                    code = "LIMIT_EXCEEDED" if timeout.expired() else "BACKEND_UNAVAILABLE"
+                    denied(code)
+                except ToolError as exc:
+                    code = exc.code
+                except Exception as exc:
+                    code = "BACKEND_UNAVAILABLE"
+                    # Không nuốt lỗi lạ: ghi loại lỗi (không ghi nội dung) để còn điều tra.
+                    log_event(
+                        logger, "turn.error", turn_id=str(turn_id), outcome="FAILED", error_code=type(exc).__name__
+                    )
+                finally:
+                    final_text = redact(final_text)
+                    if final_text:
+                        messages.append({"kind": "ASSISTANT", "content": {"text": redact(final_text)}})
+
+                    async def finish():
+                        try:
+                            await persist()
+                        finally:
+                            await repo.release_turn(conversation_id, turn_id)
+
+                    task = asyncio.create_task(finish())
+                    try:
+                        await asyncio.shield(task)
+                    except asyncio.CancelledError:
+                        await task
+                        raise
+                    except Exception:
+                        state, code = "FAILED", "BACKEND_UNAVAILABLE"
+                yield (
+                    event("turn.completed", {"status": state})
+                    if state != "FAILED"
+                    else event("turn.failed", {"code": code})
+                )
+            finally:
+                trace.set_attribute("outcome", state)
+                log_event(
+                    logger,
+                    "turn.completed",
+                    turn_id=str(turn_id),
+                    role=principal.role,
+                    outcome=state,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
 
     return stream()

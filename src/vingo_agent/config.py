@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     # Kill switch (V2.3 mục 9): tool trong danh sách không được đăng ký với model.
     agent_disabled_tools: Annotated[frozenset[str], NoDecode] = frozenset()
     log_level: str = "INFO"
+    otel_exporter_endpoint: str = ""
+    phoenix_api_key: str = ""
+    otel_project_name: str = "vingo-agent"
+    # Chỉ để debug prompt ở máy dev: ghi tin nhắn, tham số và kết quả tool vào trace.
+    # Chỉ có hiệu lực khi OTEL_EXPORTER_ENDPOINT trỏ về localhost; staging/prod luôn tắt.
+    otel_include_content: bool = False
 
     @field_validator("agent_disabled_tools", mode="before")
     @classmethod

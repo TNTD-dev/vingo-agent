@@ -891,6 +891,8 @@ ghi report
 
 Trace: `chat.turn → context.build/compact → model.request → tool.call → backend.http → … → response.check`; `action.confirm → backend.http → (lookup)`. Nối bằng `turn_id`, `action_id`, `request_id`.
 
+Công cụ: OpenTelemetry SDK, đẩy OTLP/HTTP lên **Phoenix tự host** (`OTEL_EXPORTER_ENDPOINT`, `PHOENIX_API_KEY`; endpoint rỗng = không gửi). Span model và tool lấy từ instrument sẵn của Pydantic AI với `include_content=False`; `session.id` = `conversation_id` để Phoenix gom theo hội thoại. Span tự tạo chỉ nhận attribute trong allowlist; `backend.http` chỉ ghi operation và mã HTTP, không ghi URL, body, header. Trước khi gửi, mọi span bị bỏ event exception và mô tả status. Cờ dev `OTEL_INCLUDE_CONTENT=true` cho phép ghi tin nhắn và tham số tool để debug prompt, chỉ có hiệu lực khi endpoint là localhost.
+
 Log JSON: `timestamp, event, request_id, turn_id, action_id?, role, operation, outcome, duration_ms, error_code`. Không log nội dung tin nhắn, tham số tool, body, token, form, payment URL. Không đưa ID tài nguyên vào label metric.
 
 | Nhóm | Metric |
