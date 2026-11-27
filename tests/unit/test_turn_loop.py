@@ -9,7 +9,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import FunctionModel
 
-from tests.unit.test_buyer_read import SHOW, ZONE, event, seat, seatmap, suggestion
+from tests.unit.test_buyer_read import SHOW, ZONE, availability, event, seat, seatmap, suggestion
 from vingo_agent.agents import orchestrator as o
 from vingo_agent.agents.factory import build_model
 from vingo_agent.api.auth import Principal
@@ -58,6 +58,42 @@ def test_limits_matchDesign():
 def test_T07_output_warnsWithoutEvidence():
     assert len(check_reply("Đã giữ vé 100.000 VND", Evidence(frozenset(), frozenset()))) == 2
     assert check_reply("Đã giữ vé 100.000 VND", Evidence(frozenset({"HOLD_SEATS"}), frozenset({100000}))) == []
+
+
+@pytest.mark.parametrize(
+    "budget,echo",
+    [
+        ("600 nghìn", "600.000"),
+        ("600k", "600.000"),
+        ("600 ngàn", "600.000"),
+        ("1,2 triệu", "1.200.000"),
+        ("1.5tr", "1.500.000"),
+        ("600.000", "600.000"),
+        ("600000đ", "600.000"),
+        ("600.000 VND", "600.000"),
+    ],
+)
+def test_B03_reply_acceptsBudgetFromCurrentUserMessage(budget, echo):
+    evidence = Evidence(
+        frozenset(), frozenset({250_000, 500_000}), user_text=f"Ngân sách tổng {budget} cho 2 vé, nên chọn khu nào?"
+    )
+    assert check_reply(f"Khu GA 250.000₫/vé, tổng 500.000₫, trong ngân sách {echo}₫.", evidence) == []
+
+
+@pytest.mark.parametrize(
+    "reply,warn",
+    [
+        ("Tổng 750.000₫", False),
+        ("Tổng 5.000.000₫", False),
+        ("Tổng 5.250.000₫", True),
+        ("Giá 123.000₫", True),
+        ("Giá 2₫", True),
+        ("Tổng 1.200.000₫", True),
+    ],
+)
+def test_B03_reply_boundsMultiplesToToolPrices(reply, warn):
+    evidence = Evidence(frozenset(), frozenset({250_000}), user_text="Ngân sách 600 nghìn cho 2 vé.")
+    assert check_reply(reply, evidence) == (["Giá chính xác xem trên thẻ."] if warn else [])
 
 
 @pytest.mark.parametrize("status,fallback", [(500, True), (429, True), (400, False), (403, False)])
@@ -172,6 +208,86 @@ async def test_T01_turn_streamsInOrderAndSavesRedactedText(turn_env, monkeypatch
     assert REDACTED in repr(mocks["append_messages"].call_args)
     mocks["release_turn"].assert_awaited_once_with(cid, tid)
     assert mocks["set_model_version"].await_count == 1
+
+
+@pytest.mark.parametrize(
+    "reply,warn",
+    [
+        ("Giá 250.000 đồng.", False),
+        ("Tổng 750.000 đồng.", False),
+        ("Giá 123.000 đồng.", True),
+    ],
+    ids=["context-price", "three-tickets", "summary-only"],
+)
+async def test_B03_turn_checksRetainedToolPriceWithoutNewToolCall(turn_env, monkeypatch, reply, warn):
+    from vingo_agent.context import builder
+
+    principal, cid, _, mocks = turn_env
+    old_turn = uuid4()
+    old_call = {"tool_name": "get_availability", "tool_call_id": "old"}
+    mocks["load_context"].return_value = (
+        {"content": "Giá 123.000 đồng."},
+        [
+            {"turn_id": old_turn, "kind": "TOOL_CALL", "content": old_call},
+            {
+                "turn_id": old_turn,
+                "kind": "TOOL_RESULT",
+                "content": old_call | {"result": {"ok": True, "data": {"price": 250_000}}},
+            },
+        ],
+    )
+    monkeypatch.setattr(builder, "load_context", mocks["load_context"])
+    monkeypatch.setattr(o, "build_context", builder.build_context)
+
+    async def respond(messages, info):
+        yield reply
+
+    monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond))
+    req = SendMessageRequest(command_id=uuid4(), text="Nhắc lại giá giúp tôi.")
+    events = [e async for e in await o.run_turn(conversation_id=cid, request=req, principal=principal)]
+    assert events[-1].type == "turn.completed"
+    assert "".join(e.payload["text"] for e in events if e.type == "text.delta") == reply
+    assert not any(e.type == "progress" for e in events)
+    assert [e.payload for e in events if e.type == "notice"] == (
+        [{"level": "WARN", "text": "Giá chính xác xem trên thẻ."}] if warn else []
+    )
+
+
+@pytest.mark.parametrize("valid_result", [True, False], ids=["current-price", "invalid-result"])
+async def test_B03_turn_checksBudgetAndCurrentToolPrice(turn_env, monkeypatch, respx_mock, valid_result):
+    from pydantic_ai.models.function import DeltaToolCall
+
+    principal, cid, _, _ = turn_env
+    monkeypatch.setattr(o.repo, "has_ref", AsyncMock(return_value=True))
+    monkeypatch.setattr(o.repo, "add_refs", AsyncMock())
+    raw = availability()
+    raw["zones"][0]["tier"]["price"] = 250_000
+    if not valid_result:
+        raw["status"] = "INVALID"
+    route = respx_mock.get(f"{get_settings().backend_url}/showtimes/{SHOW}/availability").respond(json=raw)
+
+    async def respond(messages, info):
+        if any(
+            getattr(p, "part_kind", "") == "tool-return" and p.tool_call_id == "current"
+            for m in messages
+            for p in m.parts
+        ):
+            yield "Giá 250.000₫/vé, tổng 500.000₫, trong ngân sách 600.000₫."
+        else:
+            yield {
+                0: DeltaToolCall(
+                    name="get_availability", json_args=json.dumps({"showtime_id": str(SHOW)}), tool_call_id="current"
+                )
+            }
+
+    monkeypatch.setattr(o, "build_model", lambda *args: FunctionModel(stream_function=respond))
+    req = SendMessageRequest(command_id=uuid4(), text="Ngân sách tổng 600 nghìn cho 2 vé, nên chọn khu nào?")
+    events = [e async for e in await o.run_turn(conversation_id=cid, request=req, principal=principal)]
+    assert route.call_count == 1 and events[-1].type == "turn.completed"
+    assert [e.payload["type"] for e in events if e.type == "block"] == (["ZoneAvailability"] if valid_result else [])
+    assert [e.payload for e in events if e.type == "notice"] == (
+        [] if valid_result else [{"level": "WARN", "text": "Giá chính xác xem trên thẻ."}]
+    )
 
 
 async def test_T13_turn_rejectsBusyBeforeStream(turn_env):

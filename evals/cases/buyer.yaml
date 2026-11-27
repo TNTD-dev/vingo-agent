@@ -414,6 +414,10 @@
     expected:
       tools:
       - list_my_tickets
+      business_effects: 0
+  - message: Có, gửi lại vé ISSUED đầu tiên.
+    expected:
+      tools:
       - propose_resend_my_ticket
       business_effects: 0
       blocks:

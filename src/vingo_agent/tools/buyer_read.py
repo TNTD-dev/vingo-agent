@@ -206,7 +206,9 @@ async def list_my_tickets(
     limit: PageLimit = 10,
 ) -> dict:
     """Tìm vé của người dùng hiện tại để xem vé, mở QR trên thẻ vé hoặc chọn vé gửi lại.
-    Dùng when=past cho vé đã qua. → listMyTickets"""
+    Bỏ when tương đương when=upcoming (vé sắp tới). Dùng when=past để xem vé đã qua.
+    Nếu người dùng không nêu thời gian, tra vé sắp tới trước. Nếu danh sách đó rỗng, gọi lại với when=past
+    trước khi báo không có vé. → listMyTickets"""
     return await _read(
         ctx.deps,
         "listMyTickets",

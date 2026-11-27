@@ -251,11 +251,6 @@ async def run_turn(*, conversation_id, request, principal):
                                 conversation_id, await estimate(), summarize=summarize, estimate=estimate_after_compact
                             )
                         history = await context()
-                        _, context_rows = await repo.load_context(conversation_id)
-                        for row in context_rows:
-                            if row["kind"] == "TOOL_RESULT":
-                                if row["content"].get("result", {}).get("ok") is True:
-                                    amounts.update(amounts_in(row["content"]))
                         if selection:
                             kind = "SEAT" if selection.type.value == "SEATS" else selection.type.value
                             valid = [
@@ -420,7 +415,15 @@ async def run_turn(*, conversation_id, request, principal):
                                     if responses:
                                         model_version = responses[-1].model_name
                         with span("response.check"):
-                            warnings = check_reply(final_text, Evidence(frozenset(succeeded), frozenset(amounts)))
+                            _, context_rows = await repo.load_context(conversation_id)
+                            for row in context_rows:
+                                if row["kind"] == "TOOL_RESULT":
+                                    result = row["content"].get("result")
+                                    if isinstance(result, dict) and result.get("ok") is True:
+                                        amounts.update(amounts_in(result))
+                            warnings = check_reply(
+                                final_text, Evidence(frozenset(succeeded), frozenset(amounts), user_text=text)
+                            )
                         for warning in warnings:
                             denied("UNVERIFIED_REPLY")
                             notice = {"level": "WARN", "text": warning}

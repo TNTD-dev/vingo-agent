@@ -14,7 +14,7 @@ from evals.coverage import check_coverage
 from evals.evaluators import evaluate, response
 from evals.fixtures import ALIASES, BUSINESS_TABLES, check_reset
 from evals.judge import judge, safe_payload
-from evals.runner import real_case, step_actions, summarize, validate_nodes
+from evals.runner import block_facts, real_case, step_actions, summarize, validate_nodes
 from tests.unit.test_buyer_read import event
 from vingo_agent.agents import orchestrator
 from vingo_agent.api.app import create_app
@@ -87,6 +87,24 @@ def test_evaluators_failMissingEvidence_andDetectSafety():
 def test_response_acceptsVerifiedFacts():
     assert response({"verify_blocks": True}, {"block_facts": [{"actual": 500000, "backend": 500000}]}) == []
     assert response({"verify_blocks": True}, {}) == ["response.missing_backend_evidence"]
+
+
+@pytest.mark.parametrize("order_status", ["PENDING", "PAID"], ids=["matching-order", "wrong-order-status"])
+def test_B12_blockFacts_compareOrderAndPaymentWithTheirOwnOperation(order_status):
+    order_id = str(uuid4())
+    results = [
+        {"operation": "getOrder", "data": {"id": order_id, "status": "PENDING"}},
+        {"operation": "getPayment", "data": {"order_id": order_id, "status": "OPEN"}},
+    ]
+    blocks = [
+        {"type": "OrderSummary", "order_id": order_id, "status": order_status},
+        {"type": "PaymentStatus", "order_id": order_id, "status": "OPEN"},
+    ]
+    facts = block_facts(blocks, results)
+    assert facts == [{"actual": order_status, "backend": "PENDING"}, {"actual": "OPEN", "backend": "OPEN"}]
+    assert response({"verify_blocks": True}, {"block_facts": facts}) == (
+        [] if order_status == "PENDING" else ["response.backend_fact"]
+    )
 
 
 @pytest.mark.parametrize(
